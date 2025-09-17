@@ -1,0 +1,45 @@
+{
+    "name": "jenerate",
+    "version": "1.0.0",
+    "description": "Static site generator for https://jenadairlab.org",
+    "keywords": [],
+    "homepage": "https://github.com/ifeanyiecheruo/jenerate#readme",
+    "bugs": {
+        "url": "https://github.com/ifeanyiecheruo/jenerate/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ifeanyiecheruo/jenerate.git"
+    },
+    "license": "MIT",
+    "author": "Ifeanyi Echeruo <ifeanyi.echeruo@outlook.com>",
+    "type": "module",
+    "main": "dist/main.mjs",
+    "types": "dist/main.d.mts",
+    "bin": {
+        "jenerate": "./dist/start.mjs"
+    },
+    "files": [
+        "dist/**/*"
+    ],
+    "scripts": {
+        "preinstall": "git config --local core.hooksPath tools/git/hooks",
+        "build": "tsc",
+        "watch": "tsc --watch",
+        "fix": "npx biome check --no-errors-on-unmatched --fix",
+        "check": "npx biome check --no-errors-on-unmatched",
+        "test": "node --test --experimental-test-coverage --test-coverage-lines 80 --test-coverage-branches 80 --test-coverage-functions 90",
+        "watch-test": "npm run test -- --watch",
+        "git-pre-commit": "npm run fix -- --staged",
+        "git-pre-push": "npm run check -- --changed",
+        "ci": "npm run ci-check && npm run ci-build && npm run ci-test",
+        "ci-check": "npm run check",
+        "ci-build": "npm run build",
+        "ci-test": "npm run test -- --test-reporter ./tools/html-test-summary.mts --test-reporter-destination ./out/test-report.md --test-reporter spec --test-reporter-destination stdout"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.2.3",
+        "@types/node": "^24.3.1",
+        "typescript": "^5.9.2"
+    }
+}
