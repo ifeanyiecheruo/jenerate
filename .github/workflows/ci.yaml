@@ -28,6 +28,7 @@ jobs:
             
         - name: Run tests
           run: |
+            mkdir ./out
             npm run ci:test
             cat ./out/test-report.md >> "${GITHUB_STEP_SUMMARY}"
           
