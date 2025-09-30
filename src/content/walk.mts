@@ -1,151 +1,156 @@
 import assert from "node:assert";
+import { pathToFileURL } from "node:url";
 import {
-  createDocumentReference,
-  type IDocumentReference,
-  type ITypedDocumentReference,
+    createDocumentReference,
+    type IDocumentReference,
+    type ITypedDocumentReference,
 } from "./DocumentReference.mjs";
 import {
-  fetchHTMLContent,
-  getHTMLReferences,
-  type IHTMLContent,
+    fetchHTMLContent,
+    getHTMLReferences,
+    type IHTMLContent,
 } from "./HTMLContent.mjs";
 import { mime } from "./internal.mjs";
 import {
-  fetchSVGContent,
-  getSVGReferences,
-  type ISVGContent,
+    fetchSVGContent,
+    getSVGReferences,
+    type ISVGContent,
 } from "./SVGContent.mjs";
 import type { IContent } from "./types.mjs";
-import { pathToFileURL } from "node:url";
 
 export enum CycleOptions {
-  Allow = 0,
-  Prune = 1,
-  Fail = 2,
+    Allow = 0,
+    Prune = 1,
+    Fail = 2,
 }
 
 export interface IContentWalkerOptions {
-  basePath: string;
-  allowRemoteContent?: boolean;
-  cycles?: CycleOptions;
+    basePath: string;
+    allowRemoteContent?: boolean;
+    cycles?: CycleOptions;
 }
 
 interface UnknownContent extends IContent {
-  type: "unknown";
-  mimeType: string;
-  ref: IDocumentReference;
+    type: "unknown";
+    mimeType: string;
+    ref: IDocumentReference;
 }
 
 export type Content = IHTMLContent | ISVGContent | UnknownContent;
 
 type ContentGetter<T extends Content> = (
-  ref: IDocumentReference
+    ref: IDocumentReference,
 ) => Promise<T | undefined>;
 
 type ContentReferencesGetter<T extends Content> = (
-  content: T
+    content: T,
 ) => AsyncIterable<ITypedDocumentReference>;
 
 export async function* walk(
-  base: URL,
-  root: URL,
-  type: string | undefined,
-  options: IContentWalkerOptions
+    base: URL,
+    root: URL,
+    type: string | undefined,
+    options: IContentWalkerOptions,
 ): AsyncIterable<Content> {
-  if (typeof type !== "string") {
-    type = mime.getType(root.pathname) ?? "application/octet-stream";
-  }
+    if (typeof type !== "string") {
+        type = mime.getType(root.pathname) ?? "application/octet-stream";
+    }
 
-  const entryPoint = createDocumentReference(base, {
-    baseURL: pathToFileURL(options.basePath),
-  }).resolve(root.href);
+    const entryPoint = createDocumentReference(base, {
+        baseURL: pathToFileURL(options.basePath),
+    }).resolve(root.href);
 
-  yield* walkReference(type, entryPoint, options);
+    yield* walkReference(type, entryPoint, options);
 }
 
 async function* walkReference(
-  type: string,
-  ref: IDocumentReference,
-  options: IContentWalkerOptions
+    type: string,
+    ref: IDocumentReference,
+    options: IContentWalkerOptions,
 ): AsyncIterable<Content> {
-  const importChain: string[] = [];
+    const importChain: string[] = [];
 
-  for (
-    let referrer = ref.referrer;
-    typeof referrer !== "undefined";
-    referrer = referrer.referrer
-  ) {
-    importChain.push(referrer.url.href);
+    for (
+        let referrer = ref.referrer;
+        typeof referrer !== "undefined";
+        referrer = referrer.referrer
+    ) {
+        importChain.push(referrer.url.href);
 
-    if (referrer === ref) {
-      switch (options.cycles) {
-        case CycleOptions.Allow: {
-          break;
+        if (referrer === ref) {
+            switch (options.cycles) {
+                case CycleOptions.Allow: {
+                    break;
+                }
+                case CycleOptions.Prune: {
+                    return;
+                }
+                case CycleOptions.Fail: {
+                    throw new Error(importChain.join(" < "));
+                }
+                default:
+                    assert.fail();
+            }
         }
-        case CycleOptions.Prune: {
-          return;
+    }
+
+    switch (type) {
+        case "text/html":
+        case "application/xhtml+xml": {
+            yield* getAndWalkContent(
+                ref,
+                fetchHTMLContent,
+                getHTMLReferences,
+                options,
+            );
+            break;
         }
-        case CycleOptions.Fail: {
-          throw new Error(importChain.join(" < "));
+
+        case "image/svg+xml": {
+            yield* getAndWalkContent(
+                ref,
+                fetchSVGContent,
+                getSVGReferences,
+                options,
+            );
+            break;
         }
-        default:
-          assert.fail();
-      }
-    }
-  }
 
-  switch (type) {
-    case "text/html":
-    case "application/xhtml+xml": {
-      yield* getAndWalkContent(
-        ref,
-        fetchHTMLContent,
-        getHTMLReferences,
-        options
-      );
-      break;
-    }
+        // case "application/javascript": {
+        //   yield* walkJavascriptContent(ref);
+        //   break;
+        // }
 
-    case "image/svg+xml": {
-      yield* getAndWalkContent(ref, fetchSVGContent, getSVGReferences, options);
-      break;
+        default: {
+            yield {
+                type: "unknown",
+                mimeType: type,
+                ref: ref,
+            };
+        }
     }
-
-    // case "application/javascript": {
-    //   yield* walkJavascriptContent(ref);
-    //   break;
-    // }
-
-    default: {
-      yield {
-        type: "unknown",
-        mimeType: type,
-        ref: ref,
-      };
-    }
-  }
 }
 
 async function* getAndWalkContent<T extends Content>(
-  ref: IDocumentReference,
-  getter: ContentGetter<T>,
-  referencesGetter: ContentReferencesGetter<T> | undefined,
-  options: IContentWalkerOptions
+    ref: IDocumentReference,
+    getter: ContentGetter<T>,
+    referencesGetter: ContentReferencesGetter<T> | undefined,
+    options: IContentWalkerOptions,
 ): AsyncIterable<Content> {
-  const content = await getter(ref);
-  if (typeof content === "undefined") {
-    return;
-  }
-
-  yield content;
-
-  if (referencesGetter) {
-    for await (const { type, ref } of referencesGetter(content)) {
-      if (typeof type === "string") {
-        yield* walkReference(type, ref, options);
-      } else {
-        throw new Error("Not implemented");
-      }
+    const content = await getter(ref);
+    if (typeof content === "undefined") {
+        return;
     }
-  }
+
+    yield content;
+
+    if (referencesGetter) {
+        for await (const { type, ref } of referencesGetter(content)) {
+            if (typeof type === "string") {
+                yield* walkReference(type, ref, options);
+            } else {
+                throw new Error("Not implemented");
+            }
+        }
+    }
 }
