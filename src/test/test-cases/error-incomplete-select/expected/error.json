@@ -1,0 +1,8 @@
+{
+    "name": "JenerateError",
+    "message": [
+        "test-cases/error-incomplete-select/input/index.html - The following name(s) are used in a template without first being selected",
+        "\tlink - test-cases/error-incomplete-select/input/index.html:17:47",
+        "Fix the spelling of the name(s) in the template or add the problematic name(s) to the 'select' attribute at test-cases/error-incomplete-select/input/index.html:13:44"
+    ]
+}

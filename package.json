@@ -25,21 +25,34 @@
     "scripts": {
         "preinstall": "git config --local core.hooksPath tools/git/hooks",
         "build": "tsc",
-        "watch": "tsc --watch",
-        "fix": "npx biome check --no-errors-on-unmatched --fix",
-        "check": "npx biome check --no-errors-on-unmatched",
-        "test": "node --test --experimental-test-coverage --test-coverage-lines 80 --test-coverage-branches 80 --test-coverage-functions 90",
-        "watch-test": "npm run test -- --watch",
-        "git-pre-commit": "npm run fix -- --staged",
-        "git-pre-push": "npm run check -- --changed",
-        "ci": "npm run ci-check && npm run ci-build && npm run ci-test",
-        "ci-check": "npm run check",
-        "ci-build": "npm run build",
-        "ci-test": "npm run test -- --test-reporter ./tools/html-test-summary.mts --test-reporter-destination ./out/test-report.md --test-reporter spec --test-reporter-destination stdout"
+        "build:watch": "tsc --watch",
+        "test": "node --test --experimental-test-coverage --enable-source-maps --test-coverage-lines 80 --test-coverage-branches 80 --test-coverage-functions 90",
+        "test:watch": "npm run test -- --watch",
+        "ci": "npm run ci:check && npm run ci:build && npm run ci:test",
+        "lint": "npx biome check --no-errors-on-unmatched",
+        "lint:fix": "npx biome check --no-errors-on-unmatched --fix",
+        "git:pre-commit": "npm run lint:fix -- --staged",
+        "git:pre-push": "npm run lint -- --changed",
+        "ci:check": "npm run lint",
+        "ci:build": "npm run build",
+        "ci:test": "npm run test -- --test-reporter ./tools/html-test-summary.mts --test-reporter-destination ./out/test-report.md --test-reporter spec --test-reporter-destination stdout"
+    },
+    "dependencies": {
+        "chokidar": "^4.0.3",
+        "csv-parser": "^3.2.0",
+        "ejs": "^3.1.10",
+        "jsdom": "^26.1.0",
+        "mime": "^4.1.0",
+        "pretty": "^2.0.0"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.2.3",
-        "@types/node": "^24.3.1",
+        "@types/chokidar": "^1.7.5",
+        "@types/ejs": "^3.1.5",
+        "@types/jsdom": "^21.1.7",
+        "@types/mime": "^3.0.4",
+        "@types/node": "^24.3.0",
+        "@types/pretty": "^2.0.3",
         "typescript": "^5.9.2"
     }
 }
