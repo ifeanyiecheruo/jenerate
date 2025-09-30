@@ -21,13 +21,13 @@ jobs:
           run: npm ci # Installs dependencies from package-lock.json            
 
         - name: Run checks
-          run: npm run ci-check
+          run: npm run ci:check
 
         - name: Run build
-          run: npm run ci-build
+          run: npm run ci:build
             
         - name: Run tests
           run: |
-            npm run ci-test
+            npm run ci:test
             cat ./out/test-report.md >> "${GITHUB_STEP_SUMMARY}"
           
