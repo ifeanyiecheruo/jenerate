@@ -7,7 +7,7 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ITaskContext, Task } from "../task.mjs";
-import { jenerateHTML } from "./jenerate.mjs";
+import { jenerateHTML } from "./jenerateHTML.mjs";
 
 export function createJenerateTask(srcRoot: string, dstRoot: string): Task {
     const _srcRoot = resolvePath(srcRoot);

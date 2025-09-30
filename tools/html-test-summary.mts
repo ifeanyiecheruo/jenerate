@@ -28,7 +28,7 @@ class HtmlReporter extends Transform {
         callback();
     }
 
-    _flush(callback) {
+    _flush(callback: () => void) {
         if (this._lastTestSummary) {
             const { tests, passed, cancelled, skipped, todo, suites } =
                 this._lastTestSummary.counts;
