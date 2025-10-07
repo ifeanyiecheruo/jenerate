@@ -57,7 +57,7 @@ export async function* walk(
     }
 
     const entryPoint = createDocumentReference(base, {
-        baseURL: pathToFileURL(options.basePath),
+        baseUrl: pathToFileURL(options.basePath),
     }).resolve(root.href);
 
     yield* walkReference(type, entryPoint, options);

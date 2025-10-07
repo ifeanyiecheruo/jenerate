@@ -1,6 +1,17 @@
 import { createReadStream } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { isAbsolute as isAbsolutePath } from "node:path";
+import { sep as posixPathSep } from "node:path/posix";
+import { sep as win32PathSep } from "node:path/win32";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+/**
+ * Handles all the subtelties of a URL referencing a resource from within a document
+ * - Maintaining a base URL
+ * - Maintaining a referrer
+ * - Implementing policy preventing fetching from remote URL without throwing
+ * - Normalizing the difference between ULRs and file paths
+ *  - e.g path.join("/a/b", "c") === "/a/b/c" where-as new URL("c", filePathToURL("/a/b")) === new URL("/a/c") (notice ./b is dropped)
+ */
 export interface IDocumentReference {
     readonly url: URL;
     readonly referrer: IDocumentReference | undefined;
@@ -21,12 +32,12 @@ export interface ITypedDocumentReference {
 }
 
 interface IResolveContext {
-    baseURL: URL;
+    baseUrl: URL;
     allowRemoteFetch?: boolean | undefined;
 }
 
 export interface IDocumentReferenceOptions {
-    baseURL: URL;
+    baseUrl: URL;
 }
 
 export function createDocumentReference(
@@ -34,7 +45,7 @@ export function createDocumentReference(
     options: IDocumentReferenceOptions,
 ): IDocumentReference {
     return new DocumentReference(url, undefined, {
-        baseURL: options.baseURL,
+        baseUrl: options.baseUrl,
     });
 }
 
@@ -74,22 +85,28 @@ class DocumentReference implements IDocumentReference {
 
     public resolve(urlOrPath: URL | string): IDocumentReference {
         if (typeof urlOrPath === "string") {
-            const path = urlOrPath;
+            const path = urlOrPath.replaceAll(win32PathSep, posixPathSep);
 
-            if (path.startsWith("/") || path.startsWith("\\")) {
-                if (isSubResource(this._context.baseURL, this._url)) {
+            if (path.startsWith(posixPathSep)) {
+                if (isSubResource(this._context.baseUrl, this._url)) {
                     return new DocumentReference(
-                        new URL(`.${path}`, this._context.baseURL),
+                        new URL(`.${path}`, this._context.baseUrl),
                         this,
                         this._context,
                     );
                 } else {
                     return new DocumentReference(
-                        new URL(path, this._url),
+                        new URL(pathToFileURL(path), this._url),
                         this,
                         this._context,
                     );
                 }
+            } else if (isAbsolutePath(urlOrPath)) {
+                return new DocumentReference(
+                    new URL(pathToFileURL(path), this._url),
+                    this,
+                    this._context,
+                );
             } else {
                 return this.resolve(new URL(path, this._url));
             }

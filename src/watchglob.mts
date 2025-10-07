@@ -1,6 +1,5 @@
-import type { GlobOptionsWithoutFileTypes } from "node:fs";
-import { glob } from "node:fs/promises";
-import { join as joinPath } from "node:path";
+import type { GlobOptionsWithoutFileTypes, Stats } from "node:fs";
+import { matchesGlob } from "node:path";
 import type { EventEmitter } from "node:stream";
 import type { FSWatcher, FSWatcherEventMap } from "chokidar";
 import { watch } from "chokidar";
@@ -8,53 +7,35 @@ import { watch } from "chokidar";
 export type GlobWatcherOptions = GlobOptionsWithoutFileTypes;
 
 export class GlobWatcher {
-    private readonly _pattern: string | string[];
-    private readonly _options: GlobWatcherOptions | undefined;
     private readonly _watcher: FSWatcher;
-    private _running: boolean = false;
 
-    public constructor(
-        pattern: string | string[],
-        options?: GlobWatcherOptions,
-    ) {
-        this._pattern = pattern;
-        this._options = options;
-        this._watcher = watch([], { awaitWriteFinish: true });
+    public constructor(rootPath: string, pattern: string | string[]) {
+        const patterns = Array.isArray(pattern) ? pattern : [pattern];
+        this._watcher = watch([], {
+            cwd: rootPath,
+            persistent: true,
+            ignoreInitial: true,
+            awaitWriteFinish: true,
+            ignored: (path: string, stats?: Stats): boolean => {
+                if (stats && !stats.isFile()) {
+                    return true;
+                }
+
+                return patterns.every((pattern) => !matchesGlob(path, pattern));
+            },
+        });
     }
 
     public get events(): EventEmitter<FSWatcherEventMap> {
         return this._watcher;
     }
 
-    public async start(): Promise<void> {
-        if (this._running) {
-            return;
-        }
-
-        const files = glob(
-            this._pattern,
-            this._options ?? { withFileTypes: false },
-        );
-
-        this._watcher.add(await Array.fromAsync(files));
-
-        this._running = true;
-    }
-
-    public async stop(): Promise<void> {
-        for (const [dir, filenames] of Object.entries(
-            this._watcher.getWatched(),
-        )) {
-            for (const filename of filenames) {
-                this._watcher.unwatch(joinPath(dir, filename));
-            }
-        }
-
-        this._running = false;
+    public start(): void {
+        this._watcher.add(".");
     }
 
     public async close(): Promise<void> {
-        await this.stop();
+        this._watcher.unwatch(".");
 
         if (!this._watcher.closed) {
             await this._watcher.close();

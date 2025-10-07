@@ -45,6 +45,7 @@ export interface IJenerateHTMLOptions {
     from: string;
     to: string;
     base: string;
+    signal?: AbortSignal | undefined;
 }
 
 export async function jenerateHTML(
@@ -65,9 +66,15 @@ export async function jenerateHTML(
     const assets: Set<URL> = new Set();
 
     for await (const content of contentIterator) {
+        if (options.signal?.aborted) {
+            break;
+        }
+
         switch (content.type) {
             case "html": {
                 if (content.ref.url.href === srcUrl.href) {
+                    // We have walked to the document we were asked to jenerate
+                    // expand any jen-* directives and write the file to disk
                     await expandDocumentFromContent(content, dependecies, {});
 
                     const domString = pretty(content.dom.serialize(), {
@@ -111,6 +118,7 @@ async function expandDocumentFromContent(
         ) => Promise<void>;
     }> = [];
 
+    // Find a all the jen-* directives and queue them up for processing
     for (const element of content.dom.window.document.getElementsByTagName(
         FROM_DATA_TAG_NAME,
     )) {
@@ -131,7 +139,7 @@ async function expandDocumentFromContent(
         workItems.push({ target: element, callback: processSnippet });
     }
 
-    // Since the work items mutate dom nodes it is important we do the mutation
+    // Since the queued work items mutate DOM nodes it is important we do the mutation
     // from the bottom of the document to the top of the document to minimize the
     // potential for an early mutation to have a side-effect on later content.
     workItems.sort((a, b) => -compareDOMNodes(a.target, b.target));
@@ -446,8 +454,6 @@ function getLocation(
     return location ? location : undefined;
 }
 
-function getLocationString(location: null | undefined): "";
-function getLocationString(location: NodeLocation | null | undefined): string;
 function getLocationString(location: NodeLocation | null | undefined): string {
     return location ? `:${location.startLine}:${location.startCol}` : "";
 }

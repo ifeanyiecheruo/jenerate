@@ -1,16 +1,23 @@
 #!/usr/bin/env node
 
 import { emitKeypressEvents } from "node:readline";
-import { run } from "./index.mjs";
+import { createRunner, parseCommandLine } from "./index.mjs";
 
 try {
     const canceller = new AbortController();
 
     onceEscapeKeyPressed(() => {
-        canceller?.abort();
+        canceller.abort();
     });
 
-    await run(process.argv.slice(2), canceller);
+    const runnerOptions = parseCommandLine(process.argv.slice(2));
+    const runner = createRunner(runnerOptions);
+
+    runner.events.on("error", (error) =>
+        console.error(Error.isError(error) ? error.message : error),
+    );
+
+    await runner.run(canceller.signal);
 } catch (error) {
     console.error(Error.isError(error) ? error.message : error);
 }

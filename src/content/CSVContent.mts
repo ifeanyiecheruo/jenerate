@@ -36,7 +36,7 @@ export async function fetchCSVContent(
                     result.push(trimRow(row));
                 }
             })
-            .on("end", () => {
+            .once("end", () => {
                 resolve({
                     type: "csv",
                     mimeType: "text/csv",

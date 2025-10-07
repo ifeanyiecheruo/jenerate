@@ -18,6 +18,10 @@ export function createJenerateTask(srcRoot: string, dstRoot: string): Task {
         inputs: string[],
     ): Promise<void> {
         for (const input of inputs) {
+            if (ctx.signal?.aborted) {
+                break;
+            }
+
             const dstPath = joinPath(_dstRoot, relativePath(_srcRoot, input));
 
             await mkdir(dirname(dstPath), { recursive: true });
@@ -26,6 +30,7 @@ export function createJenerateTask(srcRoot: string, dstRoot: string): Task {
                 from: input,
                 to: dstPath,
                 base: _srcRoot,
+                signal: ctx.signal,
             });
 
             for (const item of dependencies) {

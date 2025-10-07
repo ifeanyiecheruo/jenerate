@@ -5,8 +5,9 @@ export type TaskId = string;
 export type Task = (context: ITaskContext, inputs: string[]) => Promise<void>;
 
 export interface ITaskContext {
+    signal: AbortSignal | undefined;
     dependOn(path: string): void;
-    do(task: Task, inputs: string[]): Promise<void>;
+    do(task: Task, inputs: string[], signal?: AbortSignal): Promise<void>;
 }
 
 export type ChangeType = "add" | "change" | "delete";
@@ -18,7 +19,7 @@ export interface ITaskRunner {
     setInputs(id: TaskId, inputs: string[]): void;
     remove(id: TaskId): void;
     invalidatePath(path: string, type: ChangeType): void;
-    update(): Promise<void>;
+    update(signal?: AbortSignal): Promise<void>;
 }
 
 export function createTaskRunner(): ITaskRunner {
@@ -86,13 +87,18 @@ class TaskRunner implements ITaskRunner {
         }
     }
 
-    public async update(): Promise<void> {
+    public async update(signal?: AbortSignal | undefined): Promise<void> {
         this._needsUpdate = false;
 
         for (const context of [...this._invalidContexts]) {
+            if (signal?.aborted) {
+                break;
+            }
+
             const { task, inputs } = context;
 
             this._prune(context);
+            context.setSignal(signal);
             await task(context, inputs);
             this._gather(context);
             this._markValid(context);
@@ -191,6 +197,8 @@ class TaskContext implements ITaskContext {
     public readonly dependencies: Set<string> = new Set();
     public readonly subTasks: TaskContext[] = [];
 
+    private _signal: AbortSignal | undefined;
+
     public constructor(
         parent: TaskContext | undefined,
         task: Task,
@@ -201,14 +209,27 @@ class TaskContext implements ITaskContext {
         this.inputs = inputs;
     }
 
+    get signal(): AbortSignal | undefined {
+        return this._signal;
+    }
+
+    public setSignal(signal?: AbortSignal): void {
+        this._signal = signal;
+    }
+
     public dependOn(path: string): void {
         this.dependencies.add(path);
     }
 
-    public async do(task: Task, inputs: string[]): Promise<void> {
+    public async do(
+        task: Task,
+        inputs: string[],
+        signal?: AbortSignal | undefined,
+    ): Promise<void> {
         const context = new TaskContext(this, task, inputs);
 
         this.subTasks.push(context);
+        context.setSignal(signal);
         await task(context, inputs);
     }
 
