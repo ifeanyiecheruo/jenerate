@@ -125,14 +125,18 @@ async function createRunnerTestSuite() {
         it("from required", async (test) => {
             test.assert.throws(
                 () => createRunner(["--to", "./out"]),
-                `--from required.\njenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+                new Error(
+                    `--from required.\njenerate [--verbose|-v] [--watch|-w] {--from|-f} <src-path> {--to|-t} <destination-path> [{--update-delay|-d} <number>] [<source-glob>+]`,
+                ),
             );
         });
 
         it("to required", async (test) => {
             test.assert.throws(
                 () => createRunner(["--from", "./dist"]),
-                `--to required.\njenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+                new Error(
+                    `--to required.\njenerate [--verbose|-v] [--watch|-w] {--from|-f} <src-path> {--to|-t} <destination-path> [{--update-delay|-d} <number>] [<source-glob>+]`,
+                ),
             );
         });
 
@@ -147,7 +151,9 @@ async function createRunnerTestSuite() {
                         "--update-delay",
                         "bar",
                     ]),
-                `--update-delay must be a number.\njenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+                new Error(
+                    `--update-delay must be a number.\njenerate [--verbose|-v] [--watch|-w] {--from|-f} <src-path> {--to|-t} <destination-path> [{--update-delay|-d} <number>] [<source-glob>+]`,
+                ),
             );
         });
     });

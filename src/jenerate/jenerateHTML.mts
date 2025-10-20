@@ -121,10 +121,6 @@ async function expandDocumentFromContent(
     env: Record<string, unknown>,
 ): Promise<void> {
     class CustomVoidHTMLElement extends content.dom.window.HTMLElement {
-        constructor() {
-            super();
-        }
-
         connectedCallback() {
             for (let child = this.lastChild; child; child = this.lastChild) {
                 this.after(child);
