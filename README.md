@@ -29,7 +29,7 @@ TODO
 
 ## Concepts
 
-The generator works by scanning a folder for [HTNL files](https://en.wikipedia.org/wiki/HTML), optionally processing them, and copying the result (including dependencies) to a destination.
+The generator works by scanning a folder for [HTML files](https://en.wikipedia.org/wiki/HTML), optionally processing them, and copying the result (including dependencies) to a destination.
 Processing includes...
 
 - Pasting common snippets into HTML files for content that needs be consistent on multiple pages; think banners or a navigation menu.
