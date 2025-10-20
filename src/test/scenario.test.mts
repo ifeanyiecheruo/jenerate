@@ -35,6 +35,7 @@ describe("suite", async () => {
 
     await createBatchTestSuite(runId, testDataRootPath, testOutputRootPath);
     await createWatchTestSuite(runId, testDataRootPath, testOutputRootPath);
+    await createRunnerTestSuite();
 
     after(async () => {
         await rm(joinPath(testOutputRootPath, runId), { recursive: true });
@@ -47,7 +48,7 @@ async function createBatchTestSuite(
     testOutputRootPath: string,
 ): Promise<void> {
     await describe("batch tests", async () => {
-        for await (const item of await listTestInfo(
+        for await (const item of await discoverTests(
             testDataRootPath,
             joinPath(testOutputRootPath, runId, "out", "batch"),
         )) {
@@ -85,7 +86,7 @@ async function createWatchTestSuite(
         "watch",
     );
     await describe("watch tests", async () => {
-        for await (const item of await listTestInfo(
+        for await (const item of await discoverTests(
             testDataRootPath,
             joinPath(testOutputRootPath, runId, "out", "watch"),
         )) {
@@ -119,6 +120,38 @@ async function createWatchTestSuite(
     });
 }
 
+async function createRunnerTestSuite() {
+    describe("cmdline", async () => {
+        it("from required", async (test) => {
+            test.assert.throws(
+                () => createRunner(["--to", "./out"]),
+                `--from required.\njenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+            );
+        });
+
+        it("to required", async (test) => {
+            test.assert.throws(
+                () => createRunner(["--from", "./dist"]),
+                `--to required.\njenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+            );
+        });
+
+        it("update-delay must be number", async (test) => {
+            test.assert.throws(
+                () =>
+                    createRunner([
+                        "--from",
+                        "./dist",
+                        "--to",
+                        "./out",
+                        "--update-delay",
+                        "bar",
+                    ]),
+                `--update-delay must be a number.\njenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+            );
+        });
+    });
+}
 async function doPassTest(
     test: TestContext,
     info: PassTestInfo,
@@ -131,20 +164,26 @@ async function doPassTest(
     const { inputPath, expectedPath, testDataRootPath, testOutputRootPath } =
         info;
 
-    const options = {
-        from: testDataRootPath,
-        to: testOutputRootPath,
-        inputs: [inputPath],
-        watch: !!steps,
-        updateDelayMs: 0,
-    };
+    const from = testDataRootPath;
+    const to = testOutputRootPath;
+    const watch = !!steps;
+    const updateDelayMs = "0";
 
-    const runner = createRunner(options);
+    const runner = createRunner([
+        "--from",
+        from,
+        "--to",
+        to,
+        watch ? "--watch" : "--no-watch",
+        "--update-delay",
+        updateDelayMs,
+        inputPath,
+    ]);
 
     if (!steps) {
-        await test.assert.doesNotReject(() => runner.run());
+        await test.assert.doesNotReject(async () => await runner.run());
     } else {
-        await test.assert.doesNotReject(() => {
+        await test.assert.doesNotReject(async () => {
             const controller = new AbortController();
 
             runner.events
@@ -169,18 +208,18 @@ async function doPassTest(
                     }
                 });
 
-            return runner.run(controller.signal);
+            await runner.run(controller.signal);
         });
     }
 
     await test.assert.deepStrictEqual(
         normalizeHTML(
-            await readFile(joinPath(options.to, inputPath), {
+            await readFile(joinPath(to, inputPath), {
                 encoding: "utf-8",
             }),
         ),
         normalizeHTML(
-            await readFile(joinPath(options.from, expectedPath), {
+            await readFile(joinPath(from, expectedPath), {
                 encoding: "utf-8",
             }),
         ),
@@ -190,7 +229,7 @@ async function doPassTest(
         await steps.tearDownSteps();
     }
 
-    await rm(options.to, { recursive: true });
+    await rm(to, { recursive: true });
 }
 
 async function doErrorTest(
@@ -217,22 +256,31 @@ async function doErrorTest(
         expectedError.message = expectedError.message.join("\n");
     }
 
-    const options = {
-        from: testDataRootPath,
-        to: testOutputRootPath,
-        inputs: [inputPath],
-        watch: !!steps,
-        updateDelayMs: 0,
-    };
+    const from = testDataRootPath;
+    const to = testOutputRootPath;
+    const watch = !!steps;
+    const updateDelayMs = "0";
 
-    const runner = createRunner(options);
+    const runner = createRunner([
+        "--from",
+        from,
+        "--to",
+        to,
+        watch ? "--watch" : "--no-watch",
+        "--update-delay",
+        updateDelayMs,
+        inputPath,
+    ]);
 
     if (!steps) {
-        await test.assert.rejects(() => runner.run(), expectedError);
+        await test.assert.rejects(
+            async () => await runner.run(),
+            expectedError,
+        );
     } else {
         const asyncErrors: unknown[] = [];
 
-        await test.assert.doesNotReject(() => {
+        await test.assert.doesNotReject(async () => {
             const controller = new AbortController();
 
             runner.events
@@ -256,7 +304,7 @@ async function doErrorTest(
                     }
                 });
 
-            return runner.run(controller.signal);
+            await runner.run(controller.signal);
         });
 
         test.assert.ok(asyncErrors.length > 0);
@@ -272,10 +320,10 @@ async function doErrorTest(
         }
     }
 
-    await rm(options.to, { recursive: true });
+    await rm(to, { recursive: true });
 }
 
-async function* listTestInfo(
+async function* discoverTests(
     testDataRootPath: string,
     testOutputRootPath: string,
 ): AsyncIterable<TestInfo> {

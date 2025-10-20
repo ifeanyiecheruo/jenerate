@@ -5,16 +5,17 @@
     viewBox="0 0 207.97252 227.54672"
     version="1.1"
     xml:space="preserve"
-    xmlns:xlink="http://www.w3.org/1999/xlink"
     xmlns="http://www.w3.org/2000/svg"
     xmlns:svg="http://www.w3.org/2000/svg">
         <image
             preserveAspectRatio="none"
             width="31.749735"
             height="108.12489"
-            xlink:href="./inner.svg"
+            href="./inner.svg"
             x="95.154945"
             y="83.284409"
         />
 
+        <script href="./script.js"></script>
+        <use href="./inner.svg"></use>
 </svg>

@@ -2,7 +2,7 @@ import { Transform } from "node:stream";
 import type { EventData } from "node:test";
 import type { TestEvent } from "node:test/reporters";
 
-class HtmlReporter extends Transform {
+class MarkdownTestReporter extends Transform {
     private _lastTestSummary?: EventData.TestSummary;
     private _lastCoverageSummary?: EventData.TestCoverage;
 
@@ -117,4 +117,4 @@ class HtmlReporter extends Transform {
     }
 }
 
-export default new HtmlReporter();
+export default new MarkdownTestReporter();

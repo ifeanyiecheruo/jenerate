@@ -22,7 +22,11 @@ import { JenerateError } from "./JenerateError.mjs";
 
 const DOCUMENT_POSITION_FOLLOWING = 4;
 const DOCUMENT_POSITION_PRECEDING = 2;
-const ATTRIBUTE_NODE = 2;
+enum NodeType {
+    ELEMENT_NODE = 1,
+    ATTRIBUTE_NODE = 2,
+    TEXT_NODE = 3,
+}
 const SNIPPET_TAG_NAME = "x-jen-snippet";
 const FROM_DATA_TAG_NAME = "x-jen-from-data";
 
@@ -102,20 +106,56 @@ export async function jenerateHTML(
     return { dependencies: dependecies, assets: assets };
 }
 
+type WorkItemCallback = (
+    dom: JSDOM,
+    target: Element,
+    context: IDocumentReference,
+    dependecies: Set<URL>,
+    env: Record<string, unknown>,
+) => Promise<void>;
+
 async function expandDocumentFromContent(
     content: IHTMLContent,
     dependencies: Set<URL>,
     env: Record<string, unknown>,
 ): Promise<void> {
+    class CustomVoidHTMLElement extends content.dom.window.HTMLElement {
+        constructor() {
+            super();
+        }
+
+        connectedCallback() {
+            for (let child = this.firstChild; child; child = this.firstChild) {
+                this.removeChild(child);
+                switch (child.nodeType) {
+                    case NodeType.ELEMENT_NODE: {
+                        this.insertAdjacentElement(
+                            "afterend",
+                            child as Element,
+                        );
+                        break;
+                    }
+
+                    case NodeType.TEXT_NODE: {
+                        const value = child.nodeValue;
+                        if (typeof value === "string") {
+                            this.insertAdjacentText("afterend", value);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    content.dom.window.customElements.define(
+        SNIPPET_TAG_NAME,
+        CustomVoidHTMLElement,
+    );
+
     const workItems: Array<{
         target: Element;
-        callback: (
-            dom: JSDOM,
-            target: Element,
-            context: IDocumentReference,
-            dependecies: Set<URL>,
-            env: Record<string, unknown>,
-        ) => Promise<void>;
+        callback: WorkItemCallback;
     }> = [];
 
     // Find a all the jen-* directives and queue them up for processing
@@ -289,9 +329,7 @@ async function processForEach(
             }
 
             dependencies.add(csvContent.ref.url);
-            target.outerHTML = outerHtml;
-
-            return;
+            target.insertAdjacentHTML("afterend", outerHtml);
         }
     }
 
@@ -322,9 +360,7 @@ async function processSnippetImpl(
         if (typeof content !== "undefined") {
             await expandDocumentFromContent(content, dependencies, env);
 
-            target.outerHTML = content.dom.serialize();
-
-            return;
+            target.insertAdjacentHTML("afterend", content.dom.serialize());
         }
     }
 
@@ -408,9 +444,11 @@ function* walkTextNodes(dom: JSDOM, root: Node): Iterable<Node> {
                 break;
             }
 
+            /* node:coverage disable */
             default: {
                 assert.fail();
             }
+            /* node:coverage enable */
         }
     }
 }
@@ -423,7 +461,7 @@ function getLocation(
 
     if (node) {
         switch (node.nodeType) {
-            case ATTRIBUTE_NODE: {
+            case NodeType.ATTRIBUTE_NODE: {
                 const { ownerElement } = node as Attr;
 
                 if (ownerElement) {
@@ -516,7 +554,7 @@ export function getRelativeUrl(
     to: URL,
 ): string | undefined {
     if (!from) {
-        return to.protocol === "file:" ? fileURLToPath(to) : to.toString();
+        return to.protocol === "file:" ? fileURLToPath(to) : to.href;
     }
 
     if (getAuthority(from) === getAuthority(to)) {

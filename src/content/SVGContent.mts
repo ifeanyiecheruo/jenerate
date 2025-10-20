@@ -7,7 +7,8 @@ import { getExternalReferences, mime } from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
 const SVG_EXTERNAL_REFERENCE_SCHEMA = {
-    href: ["image", "use", "script"],
+    href: ["a", "feImage", "image", "script", "use"],
+    "http://www.w3.org/1999/xlink:href": ["image"],
 } as const;
 
 export interface ISVGContent extends IContent {

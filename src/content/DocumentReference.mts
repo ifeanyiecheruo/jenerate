@@ -115,15 +115,11 @@ class DocumentReference implements IDocumentReference {
         }
     }
 
-    public toString(): string {
-        return this._url.protocol === "file:"
-            ? fileURLToPath(this._url)
-            : this._url.toString();
-    }
-
+    /* node:coverage disable */
     fetch(): Promise<string | undefined>;
     fetch(asBinary: false): Promise<string | undefined>;
     fetch(asBinary: true): Promise<ArrayBuffer | undefined>;
+    /* node:coverage enable */
     public async fetch(
         asBinary?: boolean,
     ): Promise<string | ArrayBuffer | undefined> {

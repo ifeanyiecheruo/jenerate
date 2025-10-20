@@ -14,8 +14,8 @@
     "license": "MIT",
     "author": "Ifeanyi Echeruo <ifeanyi.echeruo@outlook.com>",
     "type": "module",
-    "main": "dist/main.mjs",
-    "types": "dist/main.d.mts",
+    "main": "dist/index.mjs",
+    "types": "dist/index.d.mts",
     "bin": {
         "jenerate": "./dist/start.mjs"
     },
@@ -24,18 +24,21 @@
     ],
     "scripts": {
         "preinstall": "git config --local core.hooksPath tools/git/hooks",
+        "start": "node ./dist/start.mjs",
+        "start:watch": "node ./dist/start.mjs --watch",
         "build": "tsc",
         "build:watch": "tsc --watch",
         "test": "node --test --experimental-test-coverage --enable-source-maps --test-coverage-lines 80 --test-coverage-branches 80 --test-coverage-functions 90",
         "test:watch": "npm run test -- --watch",
-        "ci": "npm run ci:check && npm run ci:build && npm run ci:test",
         "lint": "npx biome check --no-errors-on-unmatched",
         "lint:fix": "npx biome check --no-errors-on-unmatched --fix",
-        "git:pre-commit": "npm run lint:fix -- --staged",
-        "git:pre-push": "npm run lint -- --changed",
+        "deploy": "",
+        "ci": "npm run ci:check && npm run ci:build && npm run ci:test",
         "ci:check": "npm run lint",
         "ci:build": "npm run build",
-        "ci:test": "npm run test -- --test-reporter ./tools/html-test-summary.mts --test-reporter-destination ./out/test-report.md --test-reporter spec --test-reporter-destination stdout"
+        "ci:test": "npm run test -- --test-reporter ./tools/markdown-test-reporter.mts --test-reporter-destination ./out/test-report.md --test-reporter spec --test-reporter-destination stdout",
+        "git:pre-commit": "npm run lint:fix -- --staged",
+        "git:pre-push": "npm run lint -- --changed"
     },
     "dependencies": {
         "chokidar": "^4.0.3",

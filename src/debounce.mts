@@ -1,3 +1,5 @@
+import assert from "node:assert";
+
 /* node:coverage disable */
 export function debounce(
     value: () => void,
@@ -25,50 +27,53 @@ export function debounce<T extends (signal?: AbortSignal | undefined) => void>(
 ): () => void {
     let timerId: ReturnType<typeof setTimeout> | undefined;
     let deadline = 0;
-    signal?.addEventListener(
-        "abort",
-        () => {
-            if (typeof timerId !== "undefined") {
-                clearTimeout(timerId);
-                timerId = undefined;
-            }
-        },
-        { once: true },
-    );
+    signal?.addEventListener("abort", cleanup, { once: true });
 
     return function callback(): void {
         if (typeof timerId !== "undefined") {
             if (signal?.aborted) {
-                clearTimeout(timerId);
-                timerId = undefined;
+                cleanup();
                 checkSignal(signal);
                 return;
             }
 
             const canExtendTimeout = Date.now() < deadline;
             if (canExtendTimeout) {
-                clearTimeout(timerId);
-                timerId = setTimeout(() => {
-                    timerId = undefined;
-                    value(signal);
-                }, delayMs);
+                cleanup();
+                setup();
             }
         } else {
             if (checkSignal(signal)) {
                 return;
             }
 
-            timerId = setTimeout(() => {
-                timerId = undefined;
-
-                if (!signal?.aborted) {
-                    value(signal);
-                }
-            }, delayMs);
-
+            setup();
             deadline = Date.now() + maxDelayMs;
         }
     };
+
+    function cleanup() {
+        if (typeof timerId !== "undefined") {
+            clearTimeout(timerId);
+            timerId = undefined;
+        }
+    }
+
+    function setup() {
+        assert(typeof timerId === "undefined");
+
+        timerId = setTimeout(() => {
+            timerId = undefined;
+
+            // There is no point throwing an exception if the signal aborted with a reason because
+            // (a) there is no user code on the stack to observe it
+            // (b) the error is not about a failure in user code, its just a signal
+            // so dont replace this with `if (checkSignal(signal)) {}`
+            if (!signal?.aborted) {
+                value(signal);
+            }
+        }, delayMs);
+    }
 }
 
 /* node:coverage disable */
@@ -83,13 +88,13 @@ export function debounceAsync(
     maxDelayMs: number,
     signal: AbortSignal,
 ): () => Promise<void>;
-/* node:coverage enable */
 export function debounceAsync(
     value: (signal?: AbortSignal | undefined) => Promise<void>,
     delayMs: number,
     maxDelayMs: number,
     signal?: AbortSignal | undefined,
 ): () => Promise<void>;
+/* node:coverage enable */
 export function debounceAsync<
     T extends (signal?: AbortSignal | undefined) => Promise<void>,
 >(

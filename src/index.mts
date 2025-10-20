@@ -12,9 +12,10 @@ import { createJenerateTask } from "./jenerate/jenerateTask.mjs";
 import { createTaskRunner, type ITaskRunner } from "./task.mjs";
 import { GlobWatcher } from "./watchglob.mjs";
 
-const MAX_UPDATE_DELAY_MS = 5_000;
-const DEFAULT_UPDATE_DELAY_MS = 500;
+const MAX_UPDATE_DELAY_SEC = 5;
+const DEFAULT_UPDATE_DELAY_SEC = 0.5;
 
+/* node:coverage disable */
 export interface RunnerEventMap {
     start: [];
     prebuild: [];
@@ -24,6 +25,7 @@ export interface RunnerEventMap {
 }
 
 export interface IRunner {
+    readonly options: Readonly<IRunnerOptions>;
     readonly events: EventEmitter<RunnerEventMap>;
 
     run(signal?: AbortSignal | undefined): Promise<void>;
@@ -37,17 +39,19 @@ export interface IRunnerOptions {
     watch?: boolean | undefined;
     updateDelayMs?: number | undefined;
 }
+/* node:coverage enable */
 
-export function createRunner(options: IRunnerOptions): IRunner {
-    return new Runner(options);
+export function createRunner(argv: string[]): IRunner {
+    return new Runner(parseCommandLine(argv));
 }
 
-export function parseCommandLine(argv: string[]): IRunnerOptions {
+function parseCommandLine(argv: string[]): IRunnerOptions {
     const { values, positionals } = parseArgs({
         args: argv,
         tokens: true,
         allowPositionals: true,
         allowNegative: true,
+        strict: true,
         options: {
             watch: {
                 type: "boolean",
@@ -65,37 +69,31 @@ export function parseCommandLine(argv: string[]): IRunnerOptions {
                 type: "string",
                 short: "t",
             },
-            "update-delay-ms": {
+            "update-delay": {
                 type: "string",
                 short: "d",
-                default: String(DEFAULT_UPDATE_DELAY_MS),
+                default: String(DEFAULT_UPDATE_DELAY_SEC),
             },
         },
     });
 
-    const {
-        verbose,
-        watch,
-        from,
-        to,
-        "update-delay-ms": updateDelayStr,
-    } = values;
+    const { verbose, watch, from, to, "update-delay": updateDelayStr } = values;
 
     if (positionals.length < 1) {
         positionals.push("**/*.html");
     }
 
     if (typeof from !== "string") {
-        help();
+        help("--from required.");
     }
 
     if (typeof to !== "string") {
-        help();
+        help("--to required.");
     }
 
-    const updateDelayMs = Number.parseInt(updateDelayStr, 10);
-    if (!Number.isInteger(updateDelayMs)) {
-        help();
+    const updateDelaySec = Number.parseInt(updateDelayStr, 10);
+    if (!Number.isFinite(updateDelaySec)) {
+        help("--update-delay must be a number.");
     }
 
     return {
@@ -104,20 +102,24 @@ export function parseCommandLine(argv: string[]): IRunnerOptions {
         from: from,
         to: to,
         inputs: positionals,
-        updateDelayMs: updateDelayMs,
+        updateDelayMs: updateDelaySec * 1000,
     };
 }
 
 class Runner implements IRunner {
     readonly events: EventEmitter<RunnerEventMap> = new RunnerEventEmitter();
-    private readonly _options: IRunnerOptions;
+    readonly options: Readonly<IRunnerOptions>;
     private _running = false;
 
     constructor(options: IRunnerOptions) {
-        this._options = options;
+        this.options = options;
     }
 
     async run(signal?: AbortSignal | undefined): Promise<void> {
+        if (!this.options.watch) {
+            signal = undefined;
+        }
+
         try {
             if (signal) {
                 await this._run(signal);
@@ -163,16 +165,16 @@ class Runner implements IRunner {
         this._emitEvent(signal, "start");
 
         try {
-            const srcRoot = resolvePath(this._options.from);
-            const dstRoot = resolvePath(this._options.to);
+            const srcRoot = resolvePath(this.options.from);
+            const dstRoot = resolvePath(this.options.to);
             const runner = createTaskRunner();
             const taskId = runner.add(createJenerateTask(srcRoot, dstRoot), []);
             let updatePromise = Promise.resolve();
 
             try {
-                for await (const item of glob(this._options.inputs, {
+                for await (const item of glob(this.options.inputs, {
                     withFileTypes: true,
-                    cwd: this._options.from,
+                    cwd: this.options.from,
                 })) {
                     if (isSignalCanceled(signal)) {
                         return;
@@ -183,7 +185,7 @@ class Runner implements IRunner {
                     }
                 }
 
-                if (!this._options.watch) {
+                if (!this.options.watch) {
                     updatePromise = this._updateAndNotify(runner, signal);
                     if (isSignalCanceled(signal)) {
                         return;
@@ -197,8 +199,8 @@ class Runner implements IRunner {
                     updatePromise = then(updatePromise, scheduleUpdate());
 
                     const watcher = new GlobWatcher(
-                        this._options.from,
-                        this._options.inputs,
+                        this.options.from,
+                        this.options.inputs,
                     );
 
                     try {
@@ -282,15 +284,15 @@ class Runner implements IRunner {
         const updateDelayMs = Math.max(
             1,
             Math.min(
-                this._options.updateDelayMs ?? DEFAULT_UPDATE_DELAY_MS,
-                MAX_UPDATE_DELAY_MS,
+                this.options.updateDelayMs ?? DEFAULT_UPDATE_DELAY_SEC * 1000,
+                MAX_UPDATE_DELAY_SEC * 1000,
             ),
         );
 
         return debounceAsync(
             (signal) => this._updateAndNotify(runner, signal),
             updateDelayMs,
-            MAX_UPDATE_DELAY_MS,
+            MAX_UPDATE_DELAY_SEC * 1000,
             signal,
         );
     }
@@ -299,14 +301,16 @@ class Runner implements IRunner {
         runner: ITaskRunner,
         signal: AbortSignal,
     ): Promise<void> {
-        this._emitEvent(signal, "prebuild");
+        if (runner.needsUpdate) {
+            this._emitEvent(signal, "prebuild");
 
-        try {
-            await runner.update(signal);
-        } catch (error) {
-            this._emitEvent(signal, "error", error);
-        } finally {
-            this._emitEvent(signal, "postbuild");
+            try {
+                await runner.update(signal);
+            } catch (error) {
+                this._emitEvent(signal, "error", error);
+            } finally {
+                this._emitEvent(signal, "postbuild");
+            }
         }
     }
 
@@ -324,9 +328,9 @@ class Runner implements IRunner {
 
 class RunnerEventEmitter extends EventEmitter<RunnerEventMap> {}
 
-function help(): never {
+function help(message: string): never {
     throw new Error(
-        `jenerate [--verbose] [--watch] [--from <src-path>] [--to <destination-path>] [--update-delay-ms <positive-integer>]<source-glob>+`,
+        `${message}\njenerate [--verbose] [--watch] --from <src-path> --to <destination-path> [--update-delay <number>] <source-glob>+`,
     );
 }
 

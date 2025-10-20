@@ -146,11 +146,7 @@ async function* getAndWalkContent<T extends Content>(
 
     if (referencesGetter) {
         for await (const { type, ref } of referencesGetter(content)) {
-            if (typeof type === "string") {
-                yield* walkReference(type, ref, options);
-            } else {
-                throw new Error("Not implemented");
-            }
+            yield* walkReference(type, ref, options);
         }
     }
 }

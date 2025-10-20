@@ -14,7 +14,7 @@ export interface IHTMLContent extends IContent {
 }
 
 const HTML_EXTERNAL_REFERENCE_SCHEMA = {
-    href: ["link"],
+    href: ["a", "link"],
     src: ["img", "script", "iframe", "audio", "video", "source", "embed"],
     data: ["object"],
     poster: ["video"],
@@ -29,7 +29,14 @@ export async function fetchHTMLContent(
         return;
     }
 
-    const dom = new JSDOM(fetched, { includeNodeLocations: true });
+    const dom = new JSDOM(fetched, {
+        url: ref.url.href,
+        contentType: "text/html",
+        referrer: ref.referrer?.url.href,
+        storageQuota: 0,
+        includeNodeLocations: true,
+        runScripts: "dangerously",
+    });
 
     return {
         type: "html",
