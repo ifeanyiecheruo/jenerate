@@ -9,9 +9,13 @@
 </head>
 
 <body>
-    <p>This is a snippet test where x-jen-snippet elements are used to pull in snippets.</p>
+    <!-- This is a snippet test where x-jen-snippet elements are used to pull in snippets. -->
     <x-jen-snippet src="./body.snippet.html" />
+
+    <!-- This snipppet will be ignored because it points at remote content -->
+    <x-jen-snippet src="https://www.example.com/remote-snippet.html" /> 
     <a href="./script.js">script.js</a>
+    <a href="https://www.example.com">Remote link to unknown content</a>
 </body>
 
 </html>

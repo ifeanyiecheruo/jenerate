@@ -1,11 +1,6 @@
-import assert from "assert";
-import { Mime } from "mime";
 import type { IDocumentReference } from "./DocumentReference.mjs";
 
-export const mime = new Mime();
-
-type ExternalReferenceSchemaEntries = { [key: string]: readonly string[] };
-
+/* node:coverage disable */
 type ExternalReferenceSchema = { [key: string]: readonly string[] };
 
 type EXTERNAL_REFERENCE_TAG<T extends { [key: string]: readonly string[] }> =
@@ -16,6 +11,7 @@ interface IExternalReference<T extends ExternalReferenceSchema> {
     type: string | undefined;
     ref: IDocumentReference;
 }
+/* node:coverage enable */
 
 export async function* getExternalReferences<T extends ExternalReferenceSchema>(
     schema: T,
@@ -23,8 +19,6 @@ export async function* getExternalReferences<T extends ExternalReferenceSchema>(
     ref: IDocumentReference,
 ): AsyncIterable<IExternalReference<T>> {
     for (const [attr, tags] of Object.entries(schema)) {
-        const [attrNS, attrName] = resolveQName(attr);
-
         for (const tag of tags) {
             for (const element of getElementsByTagNameNS(document, tag)) {
                 const attrValue = getAttribute(element, attr);
@@ -67,17 +61,5 @@ function getAttribute(element: Element, attr: string): string | null {
         );
     } else {
         return element.getAttribute(attr);
-    }
-}
-
-function resolveQName(qName: string): [string | null, string] {
-    const [first, second] = qName.split(":", 2);
-
-    assert(typeof first === "string");
-
-    if (typeof second === "string") {
-        return [first, second];
-    } else {
-        return [null, first];
     }
 }

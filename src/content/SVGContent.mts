@@ -1,14 +1,22 @@
+import { extname as posixExtname } from "node:path/posix";
 import { JSDOM } from "jsdom";
+import mime from "mime";
 import type {
     IDocumentReference,
     ITypedDocumentReference,
 } from "./DocumentReference.mjs";
-import { getExternalReferences, mime } from "./internal.mjs";
+import { getExternalReferences } from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
 const SVG_EXTERNAL_REFERENCE_SCHEMA = {
     href: ["a", "feImage", "image", "script", "use"],
-    "http://www.w3.org/1999/xlink:href": ["image"],
+    "http://www.w3.org/1999/xlink:href": [
+        "a",
+        "feImage",
+        "image",
+        "script",
+        "use",
+    ],
 } as const;
 
 export interface ISVGContent extends IContent {
@@ -59,8 +67,9 @@ export async function* getSVGReferences(
 
                 default: {
                     resolvedType =
-                        mime.getType(externalRef.url.pathname) ??
+                        mime.getType(posixExtname(externalRef.url.pathname)) ??
                         "application/octet-stream";
+
                     break;
                 }
             }

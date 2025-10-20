@@ -1,9 +1,11 @@
+import { extname as posixExtname } from "node:path/posix";
 import { JSDOM } from "jsdom";
+import mime from "mime";
 import type {
     IDocumentReference,
     ITypedDocumentReference,
 } from "./DocumentReference.mjs";
-import { getExternalReferences, mime } from "./internal.mjs";
+import { getExternalReferences } from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
 export interface IHTMLContent extends IContent {
@@ -65,7 +67,7 @@ export async function* getHTMLReferences(
 
                 default: {
                     resolvedType =
-                        mime.getType(externalRef.url.pathname) ??
+                        mime.getType(posixExtname(externalRef.url.pathname)) ??
                         "application/octet-stream";
                     break;
                 }

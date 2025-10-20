@@ -1,5 +1,7 @@
 import assert from "node:assert";
+import { extname as posixExtname } from "node:path/posix";
 import { pathToFileURL } from "node:url";
+import mime from "mime";
 import {
     createDocumentReference,
     type IDocumentReference,
@@ -10,7 +12,6 @@ import {
     getHTMLReferences,
     type IHTMLContent,
 } from "./HTMLContent.mjs";
-import { mime } from "./internal.mjs";
 import {
     fetchSVGContent,
     getSVGReferences,
@@ -53,7 +54,9 @@ export async function* walk(
     options: IContentWalkerOptions,
 ): AsyncIterable<Content> {
     if (typeof type !== "string") {
-        type = mime.getType(root.pathname) ?? "application/octet-stream";
+        type =
+            mime.getType(posixExtname(root.pathname)) ??
+            "application/octet-stream";
     }
 
     const entryPoint = createDocumentReference(base, {
@@ -70,6 +73,7 @@ async function* walkReference(
 ): AsyncIterable<Content> {
     const importChain: string[] = [];
 
+    // Detect cycles
     for (
         let referrer = ref.referrer;
         typeof referrer !== "undefined";
@@ -80,9 +84,11 @@ async function* walkReference(
         if (referrer === ref) {
             switch (options.cycles) {
                 case CycleOptions.Allow: {
+                    console.log("Following cycle");
                     break;
                 }
                 case CycleOptions.Prune: {
+                    console.log("Pruning cycle");
                     return;
                 }
                 case CycleOptions.Fail: {

@@ -63,6 +63,7 @@ export async function jenerateHTML(
         "text/html",
         {
             basePath: dirname(fullBasePath),
+            allowRemoteContent: false,
         },
     );
 
@@ -125,25 +126,8 @@ async function expandDocumentFromContent(
         }
 
         connectedCallback() {
-            for (let child = this.firstChild; child; child = this.firstChild) {
-                this.removeChild(child);
-                switch (child.nodeType) {
-                    case NodeType.ELEMENT_NODE: {
-                        this.insertAdjacentElement(
-                            "afterend",
-                            child as Element,
-                        );
-                        break;
-                    }
-
-                    case NodeType.TEXT_NODE: {
-                        const value = child.nodeValue;
-                        if (typeof value === "string") {
-                            this.insertAdjacentText("afterend", value);
-                        }
-                        break;
-                    }
-                }
+            for (let child = this.lastChild; child; child = this.lastChild) {
+                this.after(child);
             }
         }
     }

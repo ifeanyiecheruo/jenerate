@@ -4,4 +4,8 @@
             <x-jen-snippet src="./article.snippet.html"></x-jen-snippet>
         </li>
     </x-jen-from-data>
+
+    <x-jen-from-data src="https://www.example.com/items.csv" select="date, title, summary, link">
+        This x-jen-from-data element will be ignored and removed because we will not follow remote links
+    </x-jen-from-data>
 </ul>

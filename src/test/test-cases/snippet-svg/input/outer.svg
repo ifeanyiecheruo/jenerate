@@ -6,7 +6,8 @@
     version="1.1"
     xml:space="preserve"
     xmlns="http://www.w3.org/2000/svg"
-    xmlns:svg="http://www.w3.org/2000/svg">
+    xmlns:svg="http://www.w3.org/2000/svg"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
         <image
             preserveAspectRatio="none"
             width="31.749735"
@@ -16,6 +17,8 @@
             y="83.284409"
         />
 
-        <script href="./script.js"></script>
+        <script xlink:href="./script.js"></script>
         <use href="./inner.svg"></use>
+        <!-- Should be ignored since it references remote content -->
+        <use href="https://www.example.org/inner.svg"></use>
 </svg>
