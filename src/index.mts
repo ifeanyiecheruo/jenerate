@@ -330,7 +330,7 @@ class RunnerEventEmitter extends EventEmitter<RunnerEventMap> {}
 
 function help(message: string): never {
     throw new Error(
-        `${message}\njenerate [--verbose|-v] [--watch|-w] {--from|-f} <src-path> {--to|-t} <destination-path> [{--update-delay|-d} <number>] [<source-glob>+]`,
+        `${message}\njenerate [--verbose|-v] [--watch|-w] {--from|-f <src-path>} {--to|-t <destination-path>} [--update-delay|d <update-delay>] [<source-glob>+]`,
     );
 }
 

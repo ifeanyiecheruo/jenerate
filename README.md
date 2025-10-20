@@ -10,7 +10,7 @@ TODO
 
 ## Syntax
 
-`jenerate [{--verbose|-v}] [{--watch|-w}] {--from|-f} <src-path> {--to|-t} <destination-path> [--update-delay <update-delay>] [<source-glob>+]`
+`jenerate [--verbose|-v] [--watch|-w] {--from|-f <src-path>} {--to|-t <destination-path>} [--update-delay|d <update-delay>] [<source-glob>+]`
 
 ### Flags
 
@@ -19,13 +19,13 @@ TODO
 
 ### Switches
 
-- `--from|-f`: Only accept files under `<src-path>` as inputs.
-- `--to|-t`: Emit generated output to `<destination-path>`.
-- `--update-delay|-d`: Wait up to `<update-delay>` seconds after an input or its dependency has changed before rejenerating.
+- `--from|-f <src-path>`: Only accept files under `<src-path>` as inputs.
+- `--to|-t <destination-path>`: Emit generated output to `<destination-path>`.
+- `--update-delay|-d <update-delay>`: Wait up to `<update-delay>` seconds after an input or its dependency has changed before rejenerating.
 
 ### Arguments
 
-- `source-glob`: Input files to generate. [https://www.google.com/search?q=glob+pattern+syntax+and+examples](Glob patterns) are supported.
+- `source-glob`: Input files to generate. [Glob patterns](https://www.google.com/search?q=glob+pattern+syntax+and+examples) are supported.
 
 ## Concepts
 
