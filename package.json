@@ -1,6 +1,6 @@
 {
     "name": "jenerate-cli",
-    "version": "0.0.0-alpha.1",
+    "version": "0.0.0-alpha.2",
     "description": "Static site generator for https://jenadairlab.org",
     "keywords": [],
     "homepage": "https://github.com/ifeanyiecheruo/jenerate#readme",
