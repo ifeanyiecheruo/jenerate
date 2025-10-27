@@ -1,7 +1,7 @@
 {
     "name": "JenerateError",
     "message": [
-        "test-cases/error-invalid-column/input/index.html:13:44 - Selected column not found.",
+        "error-invalid-column/input/index.html:13:44 - Selected column not found.",
         "The following selected columns were not found in ./items.csv",
         "\t- href",
         "Available columns in ./items.csv are",

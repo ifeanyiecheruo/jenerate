@@ -1,104 +1,125 @@
 import assert from "node:assert";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve as resolvePath } from "node:path";
-import {
-    dirname as posixDirname,
-    relative as relativePosixPath,
-} from "node:path/posix";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import ejs from "ejs";
 import { JSDOM } from "jsdom";
 import pretty from "pretty";
 import {
+    createDocumentReference,
     fetchCSVContent,
     fetchHTMLContent,
-    getRootReferrer,
+    getRelativeUrl,
     type ICSVContent,
     type IDocumentReference,
     type IHTMLContent,
+    type ISourceLocation,
+    SourceLocation,
     walk,
 } from "../content/index.mjs";
+import { getLocation, type NodeLocation } from "../dom.mjs";
 import { JenerateError } from "./JenerateError.mjs";
 
 const DOCUMENT_POSITION_FOLLOWING = 4;
 const DOCUMENT_POSITION_PRECEDING = 2;
-enum NodeType {
-    ELEMENT_NODE = 1,
-    ATTRIBUTE_NODE = 2,
-    TEXT_NODE = 3,
-}
 const SNIPPET_TAG_NAME = "x-jen-snippet";
 const FROM_DATA_TAG_NAME = "x-jen-from-data";
 
-interface NodeLocation {
-    startLine: number;
-    startCol: number;
-    startOffset: number;
-    endLine: number;
-    endCol: number;
-    endOffset: number;
+/* node:coverage disable */
+
+interface IJenerateHTMLContext {
+    followRemoteReferences?: boolean | undefined;
+    dependencies: Set<IJenerateHTMLReference>;
+    env: Record<string, unknown>;
+    visited: Set<string>;
 }
 
-interface ElementNodeLocation {
-    startLine: number;
-    startCol: number;
-    attrs?: Record<string, NodeLocation>;
-}
+type WorkItemCallback = (
+    dom: JSDOM,
+    target: Element,
+    ref: IDocumentReference,
+    context: IJenerateHTMLContext,
+) => Promise<void>;
 
 export interface IJenerateHTMLOptions {
-    from: string;
-    to: string;
-    base: string;
+    inputFilePath: string;
+    outputFilePath: string;
+    inputRootPath: string;
     signal?: AbortSignal | undefined;
+    followRemoteReferences?: boolean;
 }
+
+export interface IJenerateHTMLReference {
+    ref: URL;
+    referrer: ISourceLocation | undefined;
+}
+
+export interface IJenerateHTMLResult {
+    dependencies: Iterable<IJenerateHTMLReference>;
+    assets: Iterable<IJenerateHTMLReference>;
+}
+
+/* node:coverage enable */
 
 export async function jenerateHTML(
     options: IJenerateHTMLOptions,
-): Promise<{ dependencies: Set<URL>; assets: Set<URL> }> {
-    const fullBasePath = resolvePath(options.base);
-    const srcUrl = pathToFileURL(resolvePath(options.from));
-    const contentIterator = walk(
-        pathToFileURL(fullBasePath),
-        srcUrl,
-        "text/html",
-        {
-            basePath: dirname(fullBasePath),
-            allowRemoteContent: false,
-        },
-    );
+): Promise<IJenerateHTMLResult> {
+    const inputUrl = pathToFileURL(options.inputFilePath);
 
-    const dependecies: Set<URL> = new Set();
-    const assets: Set<URL> = new Set();
+    const contentIterator = walk(inputUrl, "text/html", {
+        rootUrl: pathToFileURL(options.inputRootPath),
+        followRemoteReferences: false,
+        ignoreNotFound: true,
+    });
 
-    for await (const content of contentIterator) {
+    const dependecies: Set<IJenerateHTMLReference> = new Set();
+    const assets: Set<IJenerateHTMLReference> = new Set();
+
+    for await (const entry of contentIterator) {
         if (options.signal?.aborted) {
             break;
         }
 
+        const { content } = entry;
+
         switch (content.type) {
             case "html": {
-                if (content.ref.url.href === srcUrl.href) {
+                if (content.ref.url.href === inputUrl.href) {
                     // We have walked to the document we were asked to jenerate
                     // expand any jen-* directives and write the file to disk
-                    await expandDocumentFromContent(content, dependecies, {});
+                    await expandDocumentFromContent(
+                        content.ref,
+                        content.dom,
+                        undefined,
+                        {
+                            followRemoteReferences:
+                                options.followRemoteReferences,
+                            dependencies: dependecies,
+                            env: {},
+                            visited: new Set(),
+                        },
+                    );
 
                     const domString = pretty(content.dom.serialize(), {
                         ocd: true,
                     });
 
-                    await mkdir(dirname(options.to), { recursive: true });
-                    await writeFile(options.to, domString, {
+                    await mkdir(dirname(options.outputFilePath), {
+                        recursive: true,
+                    });
+                    await writeFile(options.outputFilePath, domString, {
                         encoding: "utf-8",
                     });
-                } else {
-                    dependecies.add(content.ref.url);
                 }
 
                 break;
             }
 
             default: {
-                assets.add(content.ref.url);
+                assets.add({
+                    ref: content.ref.url,
+                    referrer: entry.sourceLocation,
+                });
                 break;
             }
         }
@@ -107,127 +128,136 @@ export async function jenerateHTML(
     return { dependencies: dependecies, assets: assets };
 }
 
-type WorkItemCallback = (
-    dom: JSDOM,
-    target: Element,
-    context: IDocumentReference,
-    dependecies: Set<URL>,
-    env: Record<string, unknown>,
-) => Promise<void>;
-
 async function expandDocumentFromContent(
-    content: IHTMLContent,
-    dependencies: Set<URL>,
-    env: Record<string, unknown>,
+    ref: IDocumentReference,
+    dom: JSDOM,
+    sourceLocation: ISourceLocation | undefined,
+    context: IJenerateHTMLContext,
 ): Promise<void> {
-    class CustomVoidHTMLElement extends content.dom.window.HTMLElement {
-        connectedCallback() {
-            for (let child = this.lastChild; child; child = this.lastChild) {
-                this.after(child);
+    if (context.visited.has(ref.url.href)) {
+        // Prune loops
+        return;
+    }
+
+    context.visited.add(ref.url.href);
+
+    try {
+        const {
+            window: { document, customElements, HTMLElement },
+        } = dom;
+
+        class CustomVoidHTMLElement extends HTMLElement {
+            connectedCallback() {
+                for (
+                    let child = this.lastChild;
+                    child;
+                    child = this.lastChild
+                ) {
+                    this.after(child);
+                }
             }
         }
-    }
 
-    content.dom.window.customElements.define(
-        SNIPPET_TAG_NAME,
-        CustomVoidHTMLElement,
-    );
+        customElements.define(SNIPPET_TAG_NAME, CustomVoidHTMLElement);
 
-    const workItems: Array<{
-        target: Element;
-        callback: WorkItemCallback;
-    }> = [];
+        const workItems: Array<{
+            target: Element;
+            callback: WorkItemCallback;
+        }> = [];
 
-    // Find a all the jen-* directives and queue them up for processing
-    for (const element of content.dom.window.document.getElementsByTagName(
-        FROM_DATA_TAG_NAME,
-    )) {
-        workItems.push({ target: element, callback: processForEach });
-    }
-
-    for (const element of content.dom.window.document.head.getElementsByTagName(
-        "link",
-    )) {
-        if (element.getAttribute("rel") === SNIPPET_TAG_NAME) {
-            workItems.push({ target: element, callback: processRelSnippet });
+        // Find a all the jen-* directives and queue them up for processing
+        for (const element of document.getElementsByTagName(
+            FROM_DATA_TAG_NAME,
+        )) {
+            workItems.push({ target: element, callback: processForEach });
         }
+
+        for (const element of document.head.getElementsByTagName("link")) {
+            if (element.getAttribute("rel") === SNIPPET_TAG_NAME) {
+                workItems.push({
+                    target: element,
+                    callback: processRelSnippet,
+                });
+            }
+        }
+
+        for (const element of document.body.getElementsByTagName(
+            SNIPPET_TAG_NAME,
+        )) {
+            workItems.push({ target: element, callback: processSnippet });
+        }
+
+        // Since the queued work items mutate DOM nodes it is important we do the mutation
+        // from the bottom of the document to the top of the document to minimize the
+        // potential for an early mutation to have a side-effect on later content.
+        workItems.sort((a, b) => -compareDOMNodes(a.target, b.target));
+
+        for (const { target, callback } of workItems) {
+            await callback(dom, target, ref, context);
+        }
+
+        context.dependencies.add({
+            ref: ref.url,
+            referrer: sourceLocation,
+        });
+
+        return;
+    } finally {
+        context.visited.delete(ref.url.href);
     }
-
-    for (const element of content.dom.window.document.body.getElementsByTagName(
-        SNIPPET_TAG_NAME,
-    )) {
-        workItems.push({ target: element, callback: processSnippet });
-    }
-
-    // Since the queued work items mutate DOM nodes it is important we do the mutation
-    // from the bottom of the document to the top of the document to minimize the
-    // potential for an early mutation to have a side-effect on later content.
-    workItems.sort((a, b) => -compareDOMNodes(a.target, b.target));
-
-    for (const { target, callback } of workItems) {
-        await callback(content.dom, target, content.ref, dependencies, env);
-    }
-
-    dependencies.add(content.ref.url);
-
-    return;
 }
 
 async function processSnippet(
     dom: JSDOM,
     target: Element,
     ref: IDocumentReference,
-    dependencies: Set<URL>,
-    env: Record<string, unknown>,
+    context: IJenerateHTMLContext,
 ): Promise<void> {
-    return await processSnippetImpl(dom, target, "src", ref, dependencies, env);
+    return await processSnippetImpl(dom, target, "src", ref, context);
 }
 
 async function processRelSnippet(
     dom: JSDOM,
     target: Element,
     ref: IDocumentReference,
-    dependencies: Set<URL>,
-    env: Record<string, unknown>,
+    context: IJenerateHTMLContext,
 ): Promise<void> {
-    return await processSnippetImpl(
-        dom,
-        target,
-        "href",
-        ref,
-        dependencies,
-        env,
-    );
+    return await processSnippetImpl(dom, target, "href", ref, context);
 }
 
 async function processForEach(
     dom: JSDOM,
     target: Element,
     ref: IDocumentReference,
-    dependencies: Set<URL>,
-    env: Record<string, unknown>,
+    context: IJenerateHTMLContext,
 ): Promise<void> {
     const src = target.getAttribute("src");
 
     if (typeof src === "string") {
-        const location = getLocation(dom, target);
+        const srcLocation = new SourceLocation(ref, getLocation(dom, target));
+
         let csvContent: ICSVContent | undefined;
 
         try {
-            csvContent = await fetchCSVContent(ref.resolve(src));
+            // Do not use ref.resolve(src) because we do not want to honor IDocumentReference roots
+            const srcRef = new URL(src, ref.url);
+
+            if (canFetchReference(srcRef, context)) {
+                csvContent = await fetchCSVContent(
+                    createDocumentReference(srcRef),
+                );
+            }
         } catch (error) {
-            throwJenerateError(ref, location, error);
+            throwJenerateError(srcLocation, error);
         }
 
         if (typeof csvContent !== "undefined") {
-            const refString = getRootRelativePath(ref);
             const selectAttr = target.getAttributeNode("select");
-            const select = selectAttr?.nodeValue?.trim();
 
             if (!selectAttr) {
                 throw new JenerateError(
                     [
-                        `${refString}${getLocationString(location)} - No columns selected.`,
+                        `${srcLocation} - No columns selected.`,
                         `You must use a 'select' attribute to say which columns from ${src} you want to use in your template`,
                         `Available columns in ${src} are`,
                         ...csvContent.headers.map((item) => `\t- ${item}`),
@@ -235,10 +265,12 @@ async function processForEach(
                 );
             }
 
-            const selectLocation = getLocationString(
+            const selectLocation = new SourceLocation(
+                ref,
                 getLocation(dom, selectAttr),
             );
 
+            const select = selectAttr?.nodeValue?.trim();
             let outerHtml: string = "";
             const selectedColumns = (typeof select === "string" ? select : "")
                 .split(",")
@@ -252,7 +284,7 @@ async function processForEach(
             if (unknownSelection.length > 0) {
                 throw new JenerateError(
                     [
-                        `${refString}${selectLocation} - Selected column not found.`,
+                        `${selectLocation} - Selected column not found.`,
                         `The following selected columns were not found in ${src}`,
                         ...unknownSelection.map((item) => `\t- ${item}`),
                         `Available columns in ${src} are`,
@@ -261,26 +293,27 @@ async function processForEach(
                 );
             }
 
-            const templateParameters = getEJSTemplateParameters(dom, target);
-            const unselectedParams = Object.entries(templateParameters)
+            const unselectedParams = Object.entries(
+                getEJSTemplateParameters(dom, target),
+            )
                 .filter(([column]) => !selectedColumns.includes(column))
                 .map(
-                    ([column, location]) =>
-                        `\t${column} - ${refString}${getLocationString(location)}`,
+                    ([column, columnLocation]) =>
+                        `\t${column} - ${new SourceLocation(ref, columnLocation)}`,
                 );
 
             if (unselectedParams.length > 0) {
                 throw new JenerateError(
                     [
-                        `${refString} - The following name(s) are used in a template without first being selected`,
+                        `${selectLocation} - The following name(s) are used in a template without first being selected`,
                         ...unselectedParams,
-                        `Fix the spelling of the name(s) in the template or add the problematic name(s) to the 'select' attribute at ${refString}${selectLocation}`,
+                        `Fix the spelling of the name(s) in the template or add the problematic name(s) to the 'select' attribute`,
                     ].join("\n"),
                 );
             }
 
             for (const row of csvContent.rows) {
-                const rowEnv = { ...env, ...row };
+                const rowEnv = { ...context.env, ...row };
                 const rowDom = new JSDOM(
                     ejs.render(
                         target.innerHTML.replaceAll(
@@ -290,25 +323,28 @@ async function processForEach(
                         rowEnv,
                     ),
                     {
+                        url: ref.url.href,
+                        contentType: "text/html",
+                        referrer: ref.referrer?.url.href,
+                        storageQuota: 0,
                         includeNodeLocations: true,
+                        runScripts: undefined,
                     },
                 );
 
-                await expandDocumentFromContent(
-                    {
-                        type: "html",
-                        mimeType: "text/html",
-                        dom: rowDom,
-                        ref: ref,
-                    },
-                    dependencies,
-                    rowEnv,
-                );
+                await expandDocumentFromContent(ref, rowDom, srcLocation, {
+                    ...context,
+                    env: rowEnv,
+                });
 
                 outerHtml += rowDom.serialize();
             }
 
-            dependencies.add(csvContent.ref.url);
+            context.dependencies.add({
+                ref: csvContent.ref.url,
+                referrer: srcLocation,
+            });
+
             target.insertAdjacentHTML("afterend", outerHtml);
         }
     }
@@ -321,24 +357,34 @@ async function processSnippetImpl(
     target: Element,
     srcAttr: string,
     ref: IDocumentReference,
-    dependencies: Set<URL>,
-    env: Record<string, unknown>,
+    context: IJenerateHTMLContext,
 ): Promise<void> {
     const srcNode = target.getAttributeNode(srcAttr);
     const src = srcNode?.value;
 
     if (typeof src === "string") {
-        let content: IHTMLContent | undefined;
+        // Do not use ref.resolve(src) because we do not want to honor IDocumentReference roots
+        const srcRef = new URL(src, ref.url);
+        const srcLocation = new SourceLocation(ref, getLocation(dom, srcNode));
 
-        const srcRef = ref.resolve(src);
+        let content: IHTMLContent | undefined;
         try {
-            content = await fetchHTMLContent(srcRef);
+            if (canFetchReference(srcRef, context)) {
+                content = await fetchHTMLContent(
+                    createDocumentReference(srcRef),
+                );
+            }
         } catch (error) {
-            throwJenerateError(ref, getLocation(dom, srcNode), error);
+            throwJenerateError(srcLocation, error);
         }
 
         if (typeof content !== "undefined") {
-            await expandDocumentFromContent(content, dependencies, env);
+            await expandDocumentFromContent(
+                content.ref,
+                content.dom,
+                srcLocation,
+                context,
+            );
 
             target.insertAdjacentHTML("afterend", content.dom.serialize());
         }
@@ -400,9 +446,12 @@ function* walkTextNodes(dom: JSDOM, root: Node): Iterable<Node> {
     const ELEMENT_NODE = 1;
     const TEXT_NODE = 3;
 
-    const treeWalker = dom.window.document.createTreeWalker(
+    const {
+        window: { document, NodeFilter },
+    } = dom;
+    const treeWalker = document.createTreeWalker(
         root,
-        dom.window.NodeFilter.SHOW_TEXT | dom.window.NodeFilter.SHOW_ELEMENT,
+        NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
         null,
     );
 
@@ -433,70 +482,26 @@ function* walkTextNodes(dom: JSDOM, root: Node): Iterable<Node> {
     }
 }
 
-function getLocation(
-    dom: JSDOM,
-    node: Node | null | undefined,
-): NodeLocation | undefined {
-    let location: NodeLocation | null | undefined;
-
-    if (node) {
-        switch (node.nodeType) {
-            case NodeType.ATTRIBUTE_NODE: {
-                const { ownerElement } = node as Attr;
-
-                if (ownerElement) {
-                    const parentLocation:
-                        | ElementNodeLocation
-                        | null
-                        | undefined = dom.nodeLocation(ownerElement);
-
-                    if (parentLocation?.attrs) {
-                        location = parentLocation.attrs[node.nodeName];
-                    }
-                }
-
-                if (!location) {
-                    location = dom.nodeLocation(node);
-                }
-
-                break;
-            }
-
-            default: {
-                location = dom.nodeLocation(node);
-                break;
-            }
-        }
-    }
-
-    return location ? location : undefined;
-}
-
-function getLocationString(location: NodeLocation | null | undefined): string {
-    return location ? `:${location.startLine}:${location.startCol}` : "";
-}
-
 function throwJenerateError(
-    ref: IDocumentReference,
-    location: NodeLocation | undefined,
+    sourceLocation: ISourceLocation,
     error: unknown,
 ): never {
     if (error instanceof JenerateError) {
         throw error;
     }
 
-    const origin = `${getRootRelativePath(ref)}${getLocationString(location)}`;
-
     if (isNodeError(error)) {
         switch (error.code) {
             case "ENOENT": {
                 assert(typeof error.path === "string");
 
+                const errorUrl = getRelativeUrl(
+                    sourceLocation.ref.url,
+                    pathToFileURL(error.path),
+                );
+
                 throw new JenerateError(
-                    `${origin} - Not found: ${getRelativeUrl(
-                        ref.url,
-                        pathToFileURL(error.path),
-                    )}`,
+                    `${sourceLocation} - Not found: ${errorUrl}`,
                     {
                         cause: error,
                     },
@@ -507,8 +512,8 @@ function throwJenerateError(
                 assert(typeof error.path === "string");
 
                 throw new JenerateError(
-                    `${origin} - Access denied: ${getRelativeUrl(
-                        ref.url,
+                    `${sourceLocation} - Access denied: ${getRelativeUrl(
+                        sourceLocation.ref.url,
                         pathToFileURL(error.path),
                     )}`,
                     { cause: error },
@@ -523,50 +528,7 @@ function throwJenerateError(
 
     const message = Error.isError(error) ? error.message : String(error);
 
-    throw new JenerateError(
-        `${getRootRelativePath(ref)}${location} - ${message}`,
-        { cause: error },
-    );
-}
-
-export function getRelativeUrl(
-    from: URL | undefined,
-    to: URL,
-): string | undefined {
-    if (!from) {
-        return to.protocol === "file:" ? fileURLToPath(to) : to.href;
-    }
-
-    if (getAuthority(from) === getAuthority(to)) {
-        return (
-            relativePosixPath(posixDirname(from.pathname), to.pathname) +
-            to.search
-        );
-    }
-}
-
-function getRootRelativePath(ref: IDocumentReference): string {
-    const result = getRelativeUrl(getRootReferrer(ref)?.url, ref.url);
-
-    return result ?? ref.toString();
-}
-
-function getAuthority(url: URL): string {
-    const { origin, username, password } = url;
-
-    if (username !== "") {
-        if (password !== "") {
-            return `${origin}@${username}:${password}`;
-        } else {
-            return `${origin}@${username}`;
-        }
-    } else {
-        if (password !== "") {
-            return `${origin}@:${password}`;
-        } else {
-            return `${origin}`;
-        }
-    }
+    throw new JenerateError(`${sourceLocation} - ${message}`, { cause: error });
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
@@ -577,4 +539,8 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
             "path" in error ||
             "syscall" in error)
     );
+}
+
+function canFetchReference(url: URL, context: IJenerateHTMLContext): boolean {
+    return url.protocol === "file:" || !!context.followRemoteReferences;
 }

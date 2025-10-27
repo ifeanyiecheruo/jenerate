@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { relative } from "node:path";
 import { emitKeypressEvents } from "node:readline";
 import { createRunner } from "./index.mjs";
 
@@ -17,20 +18,31 @@ try {
     const runner = createRunner(process.argv.slice(2));
 
     try {
-        runner.events.on("error", onError);
-
         if (runner.options.watch) {
-            console.log(`Watching... press Esc to exit.`);
+            runner.events
+                .on("prebuild", onPrebuild)
+                .on("postbuild", onPostbuild)
+                .on("error", onError);
+
+            console.log(
+                `Watching ${relative(
+                    process.cwd(),
+                    runner.options.from,
+                )} press Esc to exit.`,
+            );
         }
 
         await runner.run(canceller.signal);
     } finally {
-        runner.events.off("error", onError);
+        runner.events
+            .off("error", onError)
+            .off("postbuild", onPostbuild)
+            .off("prebuild", onPrebuild);
     }
 } catch (error) {
     process.exitCode = 1;
 
-    console.error(Error.isError(error) ? error.message : error);
+    onError(error);
 } finally {
     process.stdin.off("keypress", onKeyPress);
 
@@ -41,6 +53,14 @@ function onKeyPress(_str: string, { name }: { name: string }): void {
     if (name === "escape") {
         canceller.abort();
     }
+}
+
+function onPrebuild(): void {
+    console.log("Building...");
+}
+
+function onPostbuild(): void {
+    console.log("Built.");
 }
 
 function onError(error: unknown): void {

@@ -1,6 +1,7 @@
 import { ReadStream } from "node:fs";
 import csvParser from "csv-parser";
 import type { IDocumentReference } from "./DocumentReference.mjs";
+import { fetchReference } from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
 interface CSVHeader {
@@ -17,17 +18,12 @@ export interface ICSVContent extends IContent {
 
 export async function fetchCSVContent(
     ref: IDocumentReference,
-): Promise<ICSVContent | undefined> {
-    const fetched = await ref.fetch();
-
-    if (typeof fetched === "undefined") {
-        return;
-    }
-
+): Promise<ICSVContent> {
+    const fetched = await fetchReference(ref);
     const headers: Set<string> = new Set();
     const result: Array<Record<string, unknown>> = [];
 
-    return await new Promise<ICSVContent | undefined>((resolve, reject) => {
+    return await new Promise<ICSVContent>((resolve, reject) => {
         ReadStream.from([fetched])
             .pipe(csvParser({ mapHeaders: trimHeader }))
             .on("data", (row: Record<string, unknown>) => {

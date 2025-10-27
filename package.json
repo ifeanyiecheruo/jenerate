@@ -28,10 +28,10 @@
         "start:watch": "node ./dist/start.mjs --watch",
         "build": "tsc",
         "build:watch": "tsc --watch",
-        "test": "node --test --experimental-test-coverage --enable-source-maps --test-coverage-lines 80 --test-coverage-branches 80 --test-coverage-functions 90",
+        "test": "node --test --experimental-test-coverage --experimental-test-module-mocks --enable-source-maps --test-coverage-lines 80 --test-coverage-branches 80 --test-coverage-functions 90",
         "test:watch": "npm run test -- --watch",
         "lint": "biome check --no-errors-on-unmatched",
-        "lint:fix": "biome check --no-errors-on-unmatched --fix",
+        "lint:fix": "biome check --no-errors-on-unmatched --write",
         "deploy": "",
         "ci": "npm run ci:check && npm run ci:build && npm run ci:test",
         "ci:check": "npm run lint",
@@ -56,6 +56,8 @@
         "@types/mime": "^3.0.4",
         "@types/node": "^24.3.0",
         "@types/pretty": "^2.0.3",
-        "typescript": "^5.9.2"
+        "memfs": "^4.49.0",
+        "typescript": "^5.9.2",
+        "undici": "^7.16.0"
     }
 }

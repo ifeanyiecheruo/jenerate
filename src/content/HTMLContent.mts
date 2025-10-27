@@ -1,11 +1,12 @@
 import { extname as posixExtname } from "node:path/posix";
 import { JSDOM } from "jsdom";
 import mime from "mime";
-import type {
-    IDocumentReference,
-    ITypedDocumentReference,
-} from "./DocumentReference.mjs";
-import { getExternalReferences } from "./internal.mjs";
+import type { IDocumentReference } from "./DocumentReference.mjs";
+import {
+    fetchReference,
+    getExternalReferences,
+    type ITypedDocumentReference,
+} from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
 export interface IHTMLContent extends IContent {
@@ -24,20 +25,14 @@ const HTML_EXTERNAL_REFERENCE_SCHEMA = {
 
 export async function fetchHTMLContent(
     ref: IDocumentReference,
-): Promise<IHTMLContent | undefined> {
-    const fetched = await ref.fetch();
-
-    if (typeof fetched === "undefined") {
-        return;
-    }
-
-    const dom = new JSDOM(fetched, {
+): Promise<IHTMLContent> {
+    const dom = new JSDOM(await fetchReference(ref), {
         url: ref.url.href,
         contentType: "text/html",
         referrer: ref.referrer?.url.href,
         storageQuota: 0,
         includeNodeLocations: true,
-        runScripts: "dangerously",
+        // runScripts: "dangerously",
     });
 
     return {
@@ -51,15 +46,20 @@ export async function fetchHTMLContent(
 export async function* getHTMLReferences(
     content: IHTMLContent,
 ): AsyncIterable<ITypedDocumentReference> {
-    for await (const { tag, type, ref: externalRef } of getExternalReferences(
+    for await (const {
+        sourceLocation,
+        sourceTag,
+        type,
+        ref,
+    } of getExternalReferences(
         HTML_EXTERNAL_REFERENCE_SCHEMA,
-        content.dom.window.document,
+        content.dom,
         content.ref,
     )) {
         let resolvedType = type;
 
         if (typeof resolvedType !== "string") {
-            switch (tag) {
+            switch (sourceTag) {
                 case "script": {
                     resolvedType = "application/javascript";
                     break;
@@ -67,13 +67,13 @@ export async function* getHTMLReferences(
 
                 default: {
                     resolvedType =
-                        mime.getType(posixExtname(externalRef.url.pathname)) ??
+                        mime.getType(posixExtname(ref.url.pathname)) ??
                         "application/octet-stream";
                     break;
                 }
             }
         }
 
-        yield { type: resolvedType, ref: externalRef };
+        yield { sourceLocation, type: resolvedType, ref };
     }
 }

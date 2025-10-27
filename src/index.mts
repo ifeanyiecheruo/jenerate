@@ -6,7 +6,7 @@ import {
     relative as relativePath,
     resolve as resolvePath,
 } from "node:path";
-import { parseArgs } from "node:util";
+import { parseCommandLine } from "./cli.mjs";
 import { debounceAsync } from "./debounce.mjs";
 import { createJenerateTask } from "./jenerate/jenerateTask.mjs";
 import { createTaskRunner, type ITaskRunner } from "./task.mjs";
@@ -42,68 +42,13 @@ export interface IRunnerOptions {
 /* node:coverage enable */
 
 export function createRunner(argv: string[]): IRunner {
-    return new Runner(parseCommandLine(argv));
-}
-
-function parseCommandLine(argv: string[]): IRunnerOptions {
-    const { values, positionals } = parseArgs({
-        args: argv,
-        tokens: true,
-        allowPositionals: true,
-        allowNegative: true,
-        strict: true,
-        options: {
-            watch: {
-                type: "boolean",
-                short: "w",
-            },
-            verbose: {
-                type: "boolean",
-                short: "v",
-            },
-            from: {
-                type: "string",
-                short: "f",
-            },
-            to: {
-                type: "string",
-                short: "t",
-            },
-            "update-delay": {
-                type: "string",
-                short: "d",
-                default: String(DEFAULT_UPDATE_DELAY_SEC),
-            },
-        },
+    const cli = parseCommandLine(argv, {
+        updateDelayMs: DEFAULT_UPDATE_DELAY_SEC,
     });
 
-    const { verbose, watch, from, to, "update-delay": updateDelayStr } = values;
+    const options: IRunnerOptions = cli;
 
-    if (positionals.length < 1) {
-        positionals.push("**/*.html");
-    }
-
-    if (typeof from !== "string") {
-        help("--from required.");
-    }
-
-    if (typeof to !== "string") {
-        help("--to required.");
-    }
-
-    const updateDelaySec = Number.parseInt(updateDelayStr, 10);
-    if (!Number.isFinite(updateDelaySec)) {
-        help("--update-delay must be a number.");
-    }
-
-    return {
-        verbose: verbose,
-        watch: watch,
-        from: from,
-        to: to,
-        inputs: positionals,
-        updateDelayMs: updateDelaySec * 1000,
-    };
+    return new Runner(options);
 }
 
 class Runner implements IRunner {
@@ -155,7 +100,10 @@ class Runner implements IRunner {
             throw new Error("Already started");
         }
 
+        const verbose = !!this.options.verbose;
+
         this._running = true;
+
         this._emitEvent(signal, "start");
 
         try {
@@ -180,7 +128,11 @@ class Runner implements IRunner {
                 }
 
                 if (!this.options.watch) {
-                    updatePromise = this._updateAndNotify(runner, signal);
+                    updatePromise = this._updateAndNotify(
+                        runner,
+                        signal,
+                        verbose,
+                    );
                     if (isSignalCanceled(signal)) {
                         return;
                     }
@@ -188,6 +140,7 @@ class Runner implements IRunner {
                     const scheduleUpdate = this._createUpdateScheduler(
                         runner,
                         signal,
+                        verbose,
                     );
 
                     updatePromise = then(updatePromise, scheduleUpdate());
@@ -260,6 +213,8 @@ class Runner implements IRunner {
                     if (inputs) {
                         inputs.push(path);
                         runner.setInputs(taskId, inputs);
+                    } else {
+                        runner.setInputs(taskId, [path]);
                     }
                 }
 
@@ -274,6 +229,7 @@ class Runner implements IRunner {
     private _createUpdateScheduler(
         runner: ITaskRunner,
         signal: AbortSignal,
+        verbose: boolean,
     ): () => Promise<void> {
         const updateDelayMs = Math.max(
             1,
@@ -284,7 +240,7 @@ class Runner implements IRunner {
         );
 
         return debounceAsync(
-            (signal) => this._updateAndNotify(runner, signal),
+            (signal) => this._updateAndNotify(runner, signal, verbose),
             updateDelayMs,
             MAX_UPDATE_DELAY_SEC * 1000,
             signal,
@@ -294,10 +250,10 @@ class Runner implements IRunner {
     private async _updateAndNotify(
         runner: ITaskRunner,
         signal: AbortSignal,
+        _verbose: boolean,
     ): Promise<void> {
         if (runner.needsUpdate) {
             this._emitEvent(signal, "prebuild");
-
             try {
                 await runner.update(signal);
             } catch (error) {
@@ -322,16 +278,14 @@ class Runner implements IRunner {
 
 class RunnerEventEmitter extends EventEmitter<RunnerEventMap> {}
 
-function help(message: string): never {
-    throw new Error(
-        `${message}\njenerate [--verbose|-v] [--watch|-w] {--from|-f <src-path>} {--to|-t <destination-path>} [--update-delay|d <update-delay>] [<source-glob>+]`,
-    );
-}
-
 function isSignalCanceled(signal: AbortSignal): boolean {
     if (signal.aborted) {
-        if (typeof signal.reason !== "undefined") {
-            throw signal.reason;
+        const { reason } = signal;
+
+        if (typeof reason !== "undefined") {
+            if (!Error.isError(reason) || reason.name !== "AbortError") {
+                throw signal.reason;
+            }
         }
 
         return true;
@@ -350,12 +304,16 @@ async function waitForCancellation(signal: AbortSignal): Promise<void> {
 
         function handleCanceled(): void {
             if (signal.aborted) {
-                if (typeof signal.reason !== "undefined") {
+                const { reason } = signal;
+
+                if (!Error.isError(reason) || reason.name !== "AbortError") {
                     reject(signal.reason);
-                } else {
-                    resolve();
+
+                    return;
                 }
             }
+
+            resolve();
         }
     });
 }

@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join as joinPath, relative as relativePath } from "node:path";
+import { join as joinPath } from "node:path";
 import { after, describe, it, type TestContext } from "node:test";
 import { JSDOM } from "jsdom";
 import pretty from "pretty";
@@ -28,29 +28,34 @@ interface ErrorTestInfo {
 
 type TestInfo = PassTestInfo | ErrorTestInfo;
 
-describe("suite", async () => {
-    const runId = randomUUID();
-    const testDataRootPath = joinPath(import.meta.dirname, "test-cases");
-    const testOutputRootPath = joinPath(tmpdir(), "jenerate", "tests");
+const testDataRootPath = joinPath(import.meta.dirname, "scenarios");
 
-    await createBatchTestSuite(runId, testDataRootPath, testOutputRootPath);
-    await createWatchTestSuite(runId, testDataRootPath, testOutputRootPath);
-    await createRunnerTestSuite();
+describe("integration", async () => {
+    const runId = randomUUID();
+    const commonRoot = joinPath(tmpdir(), "jenerate", "tests", runId);
+    const testOutputRootPath = joinPath(commonRoot, "out");
+    const testTempRootPath = joinPath(commonRoot, "temp");
+
+    await createBatchTestSuite(testDataRootPath, testOutputRootPath);
+    await createWatchTestSuite(
+        testDataRootPath,
+        testOutputRootPath,
+        testTempRootPath,
+    );
 
     after(async () => {
-        await rm(joinPath(testOutputRootPath, runId), { recursive: true });
+        await rm(commonRoot, { recursive: true });
     });
 });
 
 async function createBatchTestSuite(
-    runId: string,
     testDataRootPath: string,
     testOutputRootPath: string,
 ): Promise<void> {
-    await describe("batch tests", async () => {
+    await describe("batch scenarios", async () => {
         for await (const item of await discoverTests(
             testDataRootPath,
-            joinPath(testOutputRootPath, runId, "out", "batch"),
+            joinPath(testOutputRootPath, "batch"),
         )) {
             switch (item.type) {
                 case "pass": {
@@ -75,20 +80,16 @@ async function createBatchTestSuite(
 }
 
 async function createWatchTestSuite(
-    runId: string,
     testDataRootPath: string,
     testOutputRootPath: string,
+    testTempRootPath: string,
 ): Promise<void> {
-    const newTestDataRootPath = joinPath(
-        testOutputRootPath,
-        runId,
-        "in",
-        "watch",
-    );
-    await describe("watch tests", async () => {
+    const newTestDataRootPath = joinPath(testTempRootPath, "watch");
+
+    await describe("watch scenarios", async () => {
         for await (const item of await discoverTests(
             testDataRootPath,
-            joinPath(testOutputRootPath, runId, "out", "watch"),
+            joinPath(testOutputRootPath, "watch"),
         )) {
             switch (item.type) {
                 case "pass": {
@@ -120,44 +121,6 @@ async function createWatchTestSuite(
     });
 }
 
-async function createRunnerTestSuite() {
-    describe("cmdline", async () => {
-        it("from required", async (test) => {
-            test.assert.throws(
-                () => createRunner(["--to", "./out"]),
-                new Error(
-                    `--from required.\njenerate [--verbose|-v] [--watch|-w] {--from|-f <src-path>} {--to|-t <destination-path>} [--update-delay|d <update-delay>] [<source-glob>+]`,
-                ),
-            );
-        });
-
-        it("to required", async (test) => {
-            test.assert.throws(
-                () => createRunner(["--from", "./dist"]),
-                new Error(
-                    `--to required.\njenerate [--verbose|-v] [--watch|-w] {--from|-f <src-path>} {--to|-t <destination-path>} [--update-delay|d <update-delay>] [<source-glob>+]`,
-                ),
-            );
-        });
-
-        it("update-delay must be number", async (test) => {
-            test.assert.throws(
-                () =>
-                    createRunner([
-                        "--from",
-                        "./dist",
-                        "--to",
-                        "./out",
-                        "--update-delay",
-                        "bar",
-                    ]),
-                new Error(
-                    `--update-delay must be a number.\njenerate [--verbose|-v] [--watch|-w] {--from|-f <src-path>} {--to|-t <destination-path>} [--update-delay|d <update-delay>] [<source-glob>+]`,
-                ),
-            );
-        });
-    });
-}
 async function doPassTest(
     test: TestContext,
     info: PassTestInfo,
@@ -176,6 +139,7 @@ async function doPassTest(
     const updateDelayMs = "0";
 
     const runner = createRunner([
+        "--verbose",
         "--from",
         from,
         "--to",
@@ -268,6 +232,7 @@ async function doErrorTest(
     const updateDelayMs = "0";
 
     const runner = createRunner([
+        "--verbose",
         "--from",
         from,
         "--to",
@@ -326,7 +291,7 @@ async function doErrorTest(
         }
     }
 
-    await rm(to, { recursive: true });
+    // await rm(to, { recursive: true });
 }
 
 async function* discoverTests(
@@ -341,10 +306,7 @@ async function* discoverTests(
             continue;
         }
 
-        const testDataPath = joinPath(
-            relativePath(testDataRootPath, item.parentPath),
-            item.name,
-        );
+        const testDataPath = item.name;
         const inputPath = joinPath(testDataPath, "input", "index.html");
         const expectedPath = joinPath(testDataPath, "expected", "index.html");
         const errorPath = joinPath(testDataPath, "expected", "error.json");
@@ -399,14 +361,13 @@ function createTestSteps(
         // postBuildSteps: (async function* postBuildSteps(): AsyncIterable<void> {
         // })()[Symbol.asyncIterator](),
 
-        tearDownSteps: async function teardownSteps(): Promise<void> {
-            await rm(newTestDataRootPath, { recursive: true });
-        },
+        // tearDownSteps: async function teardownSteps(): Promise<void> {
+        // },
     };
 }
 
 function normalizeHTML(value: string): string {
-    const dom = new JSDOM(value, { includeNodeLocations: true });
+    const dom = new JSDOM(value);
 
     return pretty(dom.serialize().replaceAll("\r", ""), { ocd: true });
 }

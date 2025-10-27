@@ -1,0 +1,6 @@
+{
+    "name": "JenerateError",
+    "message": [
+        "error-snippet-not-found/input/index.html:10:24 - Not found: body.snippet.html"
+    ]
+}

@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, stat } from "node:fs/promises";
 import {
     dirname,
     join as joinPath,
@@ -10,8 +10,9 @@ import type { ITaskContext, Task } from "../task.mjs";
 import { jenerateHTML } from "./jenerateHTML.mjs";
 
 export function createJenerateTask(srcRoot: string, dstRoot: string): Task {
-    const _srcRoot = resolvePath(srcRoot);
-    const _dstRoot = resolvePath(dstRoot);
+    // It's important that absSrcRoot and absDstRoot end with / so they are treated as folders and not as files
+    const absSrcRoot = `${resolvePath(srcRoot)}/`;
+    const absDstRoot = `${resolvePath(dstRoot)}/`;
 
     return async function jenerate(
         ctx: ITaskContext,
@@ -22,28 +23,36 @@ export function createJenerateTask(srcRoot: string, dstRoot: string): Task {
                 break;
             }
 
-            const dstPath = joinPath(_dstRoot, relativePath(_srcRoot, input));
-
-            await mkdir(dirname(dstPath), { recursive: true });
-
+            const absInput = resolvePath(input);
             const { dependencies, assets } = await jenerateHTML({
-                from: input,
-                to: dstPath,
-                base: _srcRoot,
+                inputFilePath: absInput,
+                outputFilePath: joinPath(
+                    absDstRoot,
+                    relativePath(absSrcRoot, absInput),
+                ),
+                inputRootPath: absSrcRoot,
                 signal: ctx.signal,
             });
 
             for (const item of dependencies) {
-                if (item.protocol === "file:") {
-                    ctx.dependOn(fileURLToPath(item));
+                if (item.ref.protocol === "file:") {
+                    const path = fileURLToPath(item.ref);
+                    ctx.dependOn(path);
                 }
             }
 
-            const fileAssets = [...assets]
-                .filter((item) => item.protocol === "file:")
-                .map((item) => fileURLToPath(item));
+            const existingPaths: string[] = [];
 
-            ctx.do(copyAsset, fileAssets);
+            for (const item of assets) {
+                if (item.ref.protocol === "file:") {
+                    const path = fileURLToPath(item.ref);
+                    if (await exists(path)) {
+                        existingPaths.push(path);
+                    }
+                }
+            }
+
+            await ctx.do(copyAsset, existingPaths);
         }
     };
 
@@ -52,10 +61,40 @@ export function createJenerateTask(srcRoot: string, dstRoot: string): Task {
         inputs: string[],
     ): Promise<void> {
         for (const input of inputs) {
-            const dstPath = joinPath(_dstRoot, relativePath(_srcRoot, input));
+            const output = joinPath(
+                absDstRoot,
+                relativePath(absSrcRoot, input),
+            );
 
-            await mkdir(dirname(dstPath), { recursive: true });
-            await copyFile(input, dstPath);
+            await mkdir(dirname(output), { recursive: true });
+            await copyFile(input, output);
         }
     }
+}
+
+async function exists(path: string): Promise<boolean> {
+    try {
+        const stats = await stat(path);
+
+        return stats.isFile();
+    } catch (error) {
+        if (
+            isNodeError(error) &&
+            (error.code === "ENOENT" || error.code === "EPERM")
+        ) {
+            return false;
+        }
+
+        throw error;
+    }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+    return (
+        Error.isError(error) &&
+        ("errno" in error ||
+            "code" in error ||
+            "path" in error ||
+            "syscall" in error)
+    );
 }

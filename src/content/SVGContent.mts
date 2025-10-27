@@ -1,11 +1,12 @@
 import { extname as posixExtname } from "node:path/posix";
 import { JSDOM } from "jsdom";
 import mime from "mime";
-import type {
-    IDocumentReference,
-    ITypedDocumentReference,
-} from "./DocumentReference.mjs";
-import { getExternalReferences } from "./internal.mjs";
+import type { IDocumentReference } from "./DocumentReference.mjs";
+import {
+    fetchReference,
+    getExternalReferences,
+    type ITypedDocumentReference,
+} from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
 const SVG_EXTERNAL_REFERENCE_SCHEMA = {
@@ -22,29 +23,35 @@ const SVG_EXTERNAL_REFERENCE_SCHEMA = {
 export interface ISVGContent extends IContent {
     type: "svg";
     mimeType: "image/svg+xml";
-    dom: Document;
+    dom: JSDOM;
+    document: Document;
     ref: IDocumentReference;
 }
 
 export async function fetchSVGContent(
     ref: IDocumentReference,
-): Promise<ISVGContent | undefined> {
-    const fetched = await ref.fetch();
-
-    if (typeof fetched === "undefined") {
-        return;
-    }
-
-    const { DOMParser } = new JSDOM("<!DOCTYPE html>", {
+): Promise<ISVGContent> {
+    const dom = new JSDOM("<!DOCTYPE html>", {
+        url: ref.url.href,
+        contentType: "text/html",
+        referrer: ref.referrer?.url.href,
+        storageQuota: 0,
         includeNodeLocations: true,
-    }).window;
-    const parser = new DOMParser();
-    const dom = parser.parseFromString(fetched, "image/svg+xml");
+        runScripts: undefined,
+    });
+    const {
+        window: { DOMParser },
+    } = dom;
+    const document = new DOMParser().parseFromString(
+        await fetchReference(ref),
+        "image/svg+xml",
+    );
 
     return {
         type: "svg",
         mimeType: "image/svg+xml",
         dom: dom,
+        document: document,
         ref: ref,
     };
 }
@@ -52,14 +59,19 @@ export async function fetchSVGContent(
 export async function* getSVGReferences(
     content: ISVGContent,
 ): AsyncIterable<ITypedDocumentReference> {
-    for await (const { tag, type, ref: externalRef } of getExternalReferences(
+    for await (const {
+        sourceLocation,
+        sourceTag,
+        type,
+        ref,
+    } of getExternalReferences(
         SVG_EXTERNAL_REFERENCE_SCHEMA,
         content.dom,
         content.ref,
     )) {
         let resolvedType = type;
         if (typeof resolvedType !== "string") {
-            switch (tag) {
+            switch (sourceTag) {
                 case "script": {
                     resolvedType = "application/javascript";
                     break;
@@ -67,7 +79,7 @@ export async function* getSVGReferences(
 
                 default: {
                     resolvedType =
-                        mime.getType(posixExtname(externalRef.url.pathname)) ??
+                        mime.getType(posixExtname(ref.url.pathname)) ??
                         "application/octet-stream";
 
                     break;
@@ -75,6 +87,6 @@ export async function* getSVGReferences(
             }
         }
 
-        yield { type: resolvedType, ref: externalRef };
+        yield { sourceLocation, type: resolvedType, ref };
     }
 }

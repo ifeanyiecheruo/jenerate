@@ -1,17 +1,17 @@
 import assert from "node:assert";
 import { extname as posixExtname } from "node:path/posix";
-import { pathToFileURL } from "node:url";
 import mime from "mime";
 import {
     createDocumentReference,
     type IDocumentReference,
-    type ITypedDocumentReference,
 } from "./DocumentReference.mjs";
 import {
     fetchHTMLContent,
     getHTMLReferences,
     type IHTMLContent,
 } from "./HTMLContent.mjs";
+import type { ITypedDocumentReference } from "./internal.mjs";
+import type { ISourceLocation } from "./SourceLocation.mjs";
 import {
     fetchSVGContent,
     getSVGReferences,
@@ -19,6 +19,7 @@ import {
 } from "./SVGContent.mjs";
 import type { IContent } from "./types.mjs";
 
+/* node:coverage disable */
 export enum CycleOptions {
     Allow = 0,
     Prune = 1,
@@ -26,9 +27,17 @@ export enum CycleOptions {
 }
 
 export interface IContentWalkerOptions {
-    basePath: string;
-    allowRemoteContent?: boolean;
+    rootUrl: URL;
+    followRemoteReferences?: boolean;
+    ignoreNotFound?: boolean;
     cycles?: CycleOptions;
+}
+
+export type Content = IHTMLContent | ISVGContent | UnknownContent;
+
+export interface IWalkEntry<T extends Content> {
+    content: T;
+    sourceLocation: ISourceLocation | undefined;
 }
 
 interface UnknownContent extends IContent {
@@ -37,58 +46,51 @@ interface UnknownContent extends IContent {
     ref: IDocumentReference;
 }
 
-export type Content = IHTMLContent | ISVGContent | UnknownContent;
-
-type ContentGetter<T extends Content> = (
-    ref: IDocumentReference,
-) => Promise<T | undefined>;
+type ContentGetter<T extends Content> = (ref: IDocumentReference) => Promise<T>;
 
 type ContentReferencesGetter<T extends Content> = (
     content: T,
 ) => AsyncIterable<ITypedDocumentReference>;
+/* node:coverage enable */
 
 export async function* walk(
-    base: URL,
-    root: URL,
+    from: URL,
     type: string | undefined,
     options: IContentWalkerOptions,
-): AsyncIterable<Content> {
+): AsyncIterable<IWalkEntry<Content>> {
     if (typeof type !== "string") {
         type =
-            mime.getType(posixExtname(root.pathname)) ??
+            mime.getType(posixExtname(from.pathname)) ??
             "application/octet-stream";
     }
 
-    const entryPoint = createDocumentReference(base, {
-        baseUrl: pathToFileURL(options.basePath),
-    }).resolve(root.href);
+    const entryPoint = createDocumentReference(from, options.rootUrl);
 
-    yield* walkReference(type, entryPoint, options);
+    yield* walkReference(undefined, type, entryPoint, options);
 }
 
 async function* walkReference(
+    sourceLocation: ISourceLocation | undefined,
     type: string,
-    ref: IDocumentReference,
+    to: IDocumentReference,
     options: IContentWalkerOptions,
-): AsyncIterable<Content> {
+): AsyncIterable<IWalkEntry<Content>> {
     const importChain: string[] = [];
 
     // Detect cycles
     for (
-        let referrer = ref.referrer;
+        let referrer = to.referrer;
         typeof referrer !== "undefined";
         referrer = referrer.referrer
     ) {
         importChain.push(referrer.url.href);
 
-        if (referrer === ref) {
+        if (referrer === to) {
             switch (options.cycles) {
                 case CycleOptions.Allow: {
-                    console.log("Following cycle");
                     break;
                 }
                 case CycleOptions.Prune: {
-                    console.log("Pruning cycle");
                     return;
                 }
                 case CycleOptions.Fail: {
@@ -104,7 +106,8 @@ async function* walkReference(
         case "text/html":
         case "application/xhtml+xml": {
             yield* getAndWalkContent(
-                ref,
+                sourceLocation,
+                to,
                 fetchHTMLContent,
                 getHTMLReferences,
                 options,
@@ -114,7 +117,8 @@ async function* walkReference(
 
         case "image/svg+xml": {
             yield* getAndWalkContent(
-                ref,
+                sourceLocation,
+                to,
                 fetchSVGContent,
                 getSVGReferences,
                 options,
@@ -129,30 +133,66 @@ async function* walkReference(
 
         default: {
             yield {
-                type: "unknown",
-                mimeType: type,
-                ref: ref,
+                content: {
+                    type: "unknown",
+                    mimeType: type,
+                    ref: to,
+                },
+                sourceLocation: sourceLocation,
             };
         }
     }
 }
 
 async function* getAndWalkContent<T extends Content>(
+    sourceLocation: ISourceLocation | undefined,
     ref: IDocumentReference,
     getter: ContentGetter<T>,
     referencesGetter: ContentReferencesGetter<T> | undefined,
     options: IContentWalkerOptions,
-): AsyncIterable<Content> {
-    const content = await getter(ref);
-    if (typeof content === "undefined") {
+): AsyncIterable<IWalkEntry<Content>> {
+    if (!options.followRemoteReferences && ref.url.protocol !== "file:") {
         return;
     }
 
-    yield content;
+    let content: T;
+
+    try {
+        content = await getter(ref);
+    } catch (error) {
+        if (
+            options.ignoreNotFound &&
+            isNodeError(error) &&
+            (error.code === "ENOENT" || error.code === "EPERM")
+        ) {
+            return;
+        }
+
+        throw error;
+    }
+
+    yield {
+        content: content,
+        sourceLocation: sourceLocation,
+    };
 
     if (referencesGetter) {
-        for await (const { type, ref } of referencesGetter(content)) {
-            yield* walkReference(type, ref, options);
+        for await (const {
+            sourceLocation,
+            type,
+            ref: nextRef,
+        } of referencesGetter(content)) {
+            yield* walkReference(sourceLocation, type, nextRef, options);
         }
     }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+    return (
+        error instanceof Error &&
+        ("errno" in error ||
+            "code" in error ||
+            "path" in error ||
+            "syscall" in error)
+    );
 }

@@ -7,7 +7,16 @@
         {
             "name": "Debug",
             "request": "launch",
-            "runtimeArgs": ["run-script", "start"],
+            "runtimeArgs": [
+                "run-script",
+                "start",
+                "--",
+                "--from",
+                "..\\jenadairlab.org\\src\\website",
+                "--to",
+                "..\\jenadair.org\\dist",
+                "**\\*.html"
+            ],
             "runtimeExecutable": "npm",
             "skipFiles": ["<node_internals>/**"],
             "type": "node",
