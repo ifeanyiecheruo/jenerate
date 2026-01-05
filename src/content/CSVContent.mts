@@ -1,4 +1,4 @@
-import { ReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import csvParser from "csv-parser";
 import type { IDocumentReference } from "./DocumentReference.mjs";
 import { fetchReference } from "./internal.mjs";
@@ -24,7 +24,7 @@ export async function fetchCSVContent(
     const result: Array<Record<string, unknown>> = [];
 
     return await new Promise<ICSVContent>((resolve, reject) => {
-        ReadStream.from([fetched])
+        Readable.from([fetched])
             .pipe(csvParser({ mapHeaders: trimHeader }))
             .on("data", (row: Record<string, unknown>) => {
                 if (Object.keys(row).length > 0) {
