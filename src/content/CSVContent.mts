@@ -1,6 +1,9 @@
 import { ReadStream } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import csvParser from "csv-parser";
 import type { IDocumentReference } from "./DocumentReference.mjs";
+import { getRootReferrer } from "./DocumentReference.mjs";
 import { fetchReference } from "./internal.mjs";
 import type { IContent } from "./types.mjs";
 
@@ -19,6 +22,15 @@ export interface ICSVContent extends IContent {
 export async function fetchCSVContent(
     ref: IDocumentReference,
 ): Promise<ICSVContent> {
+    if (ref.url.protocol === "file:") {
+        const refPath = resolve(fileURLToPath(ref.url));
+        const rootRef = getRootReferrer(ref) ?? ref;
+        const rootPath = resolve(dirname(fileURLToPath(rootRef.url)));
+        const relativePath = relative(rootPath, refPath);
+        if (relativePath.startsWith("..")) {
+            throw new Error("Path traversal not allowed");
+        }
+    }
     const fetched = await fetchReference(ref);
     const headers: Set<string> = new Set();
     const result: Array<Record<string, unknown>> = [];
