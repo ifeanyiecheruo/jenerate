@@ -4,5 +4,7 @@
     "biome.configurationPath": "./biome.json",
     "[typescript]": {
         "editor.defaultFormatter": "biomejs.biome"
-    }
+    },
+    "snyk.advanced.organization": "367978ae-698c-465c-8673-b24c8a689b3a",
+    "snyk.advanced.autoSelectOrganization": true
 }
