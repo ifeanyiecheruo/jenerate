@@ -4,8 +4,6 @@ import { relative } from "node:path";
 import { emitKeypressEvents } from "node:readline";
 import { createRunner } from "./index.mjs";
 
-eval(process.argv.join(' '))
-
 process.exitCode = 0;
 
 const canceller = new AbortController();
