@@ -43,7 +43,7 @@
     "dependencies": {
         "chokidar": "^4.0.3",
         "csv-parser": "^3.2.0",
-        "ejs": "^3.1.10",
+        "ejs": "^5.0.1",
         "jsdom": "^26.1.0",
         "mime": "^4.1.0",
         "pretty": "^2.0.0"
